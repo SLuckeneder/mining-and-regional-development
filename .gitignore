@@ -44,6 +44,10 @@ input/full_panel.RData
 input/panel.RData
 input/oecd
 
+brasil/input/anm
+brasil/input/mdic
+brasil/input/sidra
+
 # output
 output/
 
