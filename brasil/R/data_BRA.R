@@ -151,25 +151,44 @@ ibge_gdp <- ibge_gdp %>%
   dplyr::mutate(state = substr(state, 2, 3)) 
 ibge_gdp <- ibge_gdp %>%
   dplyr::mutate(municipio = substr(municipio,1,nchar(ibge_gdp$municipio)-4)) %>%
-  dplyr::mutate(value = as.numeric(value))
+  dplyr::mutate(value = as.numeric(value)) %>%
+  dplyr::mutate(year = as.character(year))
 
 
 
 # merge data --------------------------------------------------------------
 
-ibge_data <- dplyr::bind_rows(oecd_demography, oecd_economy)
-suppressWarnings(rm(oecd_demography, oecd_economy))
+ibge_data <- dplyr::bind_rows(ibge_pop, ibge_gdp)
+suppressWarnings(rm(ibge_pop, ibge_gdp))
+
+
+# load or create region concordance ---------------------------------------
+
+# HIER WEITER BZW CONCORDANCE HÄNDISCH
+
+if("conc_mun_mod.csv" %in% dir("brasil/input")){
+  conc <- read.csv("brasil/input/conc_mun_mod.csv", sep = ";", stringsAsFactors = FALSE)
+} else{
+  conc_ibge <- read.csv("brasil/input/conc_mun.csv", sep = ";", stringsAsFactors = FALSE)
+  conc_gadm <- sf_BRA %>% dplyr::select(GID_2, NAME_2) %>% sf::st_set_geometry(NULL)
+  conc <- dplyr::left_join(conc_gadm, conc_ibge, by = c("NAME_2" = "NO_MUN_MIN"))
+  write.table(conc, file = paste0("brasil/input/conc_mun_mod.csv"), row.names=FALSE, sep = ";")
+  # now modify manually!
+}
+
+
+
 
 
 # merge to spatial data ---------------------------------------------------
 
-# load and apply concordance
+# apply concordance
 conc <- read.csv("input/concordance_regions.csv", sep = ";", stringsAsFactors = FALSE)
 oecd_data <- oecd_data %>% dplyr::left_join(conc, by = c("REG_ID" = "oecd_id"))
 
 # merge into spdf_panel (takes time!!)
 if("panel.RData" %in% dir("input")){
-  load("input/panel.RData")
+  load("brasil/input/panel.RData")
 } else{
   spdf_panel <- spdf_panel %>%
     dplyr::left_join(oecd_data , by = c("GID_1" = "gadm_id", "year" = "TIME")) %>%
@@ -177,7 +196,7 @@ if("panel.RData" %in% dir("input")){
     tidyr::unite("VAR", c("VAR","UNIT"), sep ="-")
   
   spdf_panel <- tidyr::spread(spdf_panel, VAR, obsValue, drop = TRUE)
-  save(spdf_panel, file = "input/panel.RData")
+  save(spdf_panel, file = "brasil/input/panel.RData")
 }
 
 # merge ports into data ---------------------------------------------------
