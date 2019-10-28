@@ -100,6 +100,44 @@ sf_BRA_2017 %>% ggplot2::ggplot() +
 ggplot2::ggsave("brasil/output/maps/brasil_ore_2017.png", plot = last_plot(), device = "png",
                 scale = 1, width = 400, height = 300, units = "mm")
 
+# zoom into minas gerais
+zoom_bbox <- tibble::tribble(
+  ~region,                    ~x_lim,            ~y_lim,
+  "Chile",          c(-76.00, -67.00), c(-57.00, -14.00),
+  "Latin America",  c( -88.00, -31.00), c(-58.00, 13.00),
+  "Peru",           c(-82.00, -68.00), c(-19.00, 00.50),
+  "Mexico",         c(-119.00, -84.00), c(13.00, 33.00),
+  "Minas Gerais",   c(-52.00, -39.00), c(-23.00, -13.00)
+) %>% 
+  dplyr::mutate(geometry = lapply(seq_along(region), function(i) sf::st_multipoint(matrix(c(x_lim[[i]], y_lim[[i]]), nrow = 2))),
+                group = 1,
+                geometry = lapply(geometry, sf::st_bbox),
+                geometry = lapply(geometry, sf::st_as_sfc),
+                geometry = lapply(geometry, sf::st_geometrycollection),
+                geometry = sf::st_sfc(geometry)) %>% 
+  sf::st_sf() %>% 
+  sf::st_collection_extract()
+lim <- zoom_bbox %>% 
+  dplyr::filter(region == "Minas Gerais")
+
+sf_BRA_2017 %>% ggplot2::ggplot() +
+  ggplot2::geom_sf(aes(fill = log(ore_extraction))) +
+  ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
+  viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
+  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 2, 
+                      shape = 4, color = "red") +
+  ggplot2::labs(title = "Mining activities, Minas Gerais, Brasil, 2017", fill="Ore processed (log)") +
+  fineprintutils::theme_map2() +
+  ggplot2::theme(legend.position = "bottom",
+                 legend.justification = "center") +
+  guides(fill = guide_colorbar(
+    barheight = unit(2, units = "mm"),
+    barwidth = unit(140, units = "mm"),
+    title.position = "top",
+    title.hjust = 0.5,
+    label.hjust = 1))
+ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2017.png", plot = last_plot(), device = "png",
+                scale = 1, width = 400, height = 300, units = "mm")
 
 
 ### extend to shp to panel and merge extraction data
@@ -116,11 +154,11 @@ sf_panel <- sf_panel %>% dplyr::left_join(snl_data_sf_agg_panel, by = c("GID_2",
 
 # ports -------------------------------------------------------------------
 
-# Source: https://www.searoutes.com/worldwide-ports 
+# Source: https://www.searoutes.com/country-ports/Brazil
 
 # TO BE IMPLEMENTED
 
-# ports <- read.csv("input/ports.csv", sep = ";")
+# ports <- read.csv("brasil/input/ports.csv", sep = ";") MANAUS MISSING!!
 
 
 
@@ -164,8 +202,6 @@ suppressWarnings(rm(ibge_pop, ibge_gdp))
 
 # load or create region concordance ---------------------------------------
 
-# HIER WEITER BZW CONCORDANCE HÄNDISCH
-
 if("conc_mun_mod.csv" %in% dir("brasil/input")){
   conc <- read.csv("brasil/input/conc_mun_mod.csv", sep = ";", stringsAsFactors = FALSE)
 } else{
@@ -176,28 +212,119 @@ if("conc_mun_mod.csv" %in% dir("brasil/input")){
   # now modify manually!
 }
 
-
-
-
+# check concordance
+dup <- conc[duplicated(conc$GID_2),]
+dup <- conc[is.na(conc$GID_2),]
+dup <- conc[duplicated(conc$CO_MUN_GEO),]
+dup <- conc[is.na(conc$CO_MUN_GEO),]
+rm(dup)
 
 # merge to spatial data ---------------------------------------------------
 
 # apply concordance
-conc <- read.csv("input/concordance_regions.csv", sep = ";", stringsAsFactors = FALSE)
-oecd_data <- oecd_data %>% dplyr::left_join(conc, by = c("REG_ID" = "oecd_id"))
+conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactors = FALSE)
+conc <- conc %>% 
+  dplyr::mutate(CO_MUN_GEO = as.character(CO_MUN_GEO))
+ibge_data <- ibge_data %>% dplyr::full_join(conc, by = c("id" = "CO_MUN_GEO"))
+
+# check for NAs
+check <- ibge_data %>% 
+  dplyr::filter(year == 2003) %>%
+  dplyr::filter(variable == "Produto Interno Bruto a pre‡os correntes (Mil Reais)") %>%
+  dplyr::filter(is.na(GID_2))
+# ca 100, okay
+rm(check)
+
+# remove columns that are already in the ore data
+ibge_data <- ibge_data %>% 
+  dplyr::select(-NAME_2)
 
 # merge into spdf_panel (takes time!!)
 if("panel.RData" %in% dir("input")){
   load("brasil/input/panel.RData")
 } else{
-  spdf_panel <- spdf_panel %>%
-    dplyr::left_join(oecd_data , by = c("GID_1" = "gadm_id", "year" = "TIME")) %>%
-    dplyr::select(GID_1, year, ore_extraction, VAR, UNIT, obsValue) %>%
-    tidyr::unite("VAR", c("VAR","UNIT"), sep ="-")
+  sf_panel <- sf_panel %>%
+    dplyr::left_join(ibge_data , by = c("GID_2" = "GID_2", "year" = "year")) %>%
+    dplyr::select(GID_2, year, ore_extraction, variable, value)
   
-  spdf_panel <- tidyr::spread(spdf_panel, VAR, obsValue, drop = TRUE)
-  save(spdf_panel, file = "brasil/input/panel.RData")
+  sf_panel <- tidyr::spread(sf_panel, variable, value, drop = TRUE)
+  save(sf_panel, file = "brasil/input/panel.RData")
 }
+sf_panel <- sf_panel %>% dplyr::select(-`<NA>`)
+colnames(sf_panel) <- c("GID_2", "year", "ore_extraction", "tax", "pop", 
+                        "gdp_current_thousand_reais", "gva_public_service_current_thousand_reais",
+                        "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais",
+                        "gva_private_service_current_thousand_reais", "gva_current_thousand_reais",
+                        "geometry")
+
+# map descriptives --------------------------------------------------------
+
+# population
+sf_panel %>%
+  dplyr::filter(year == 2016) %>% 
+  ggplot2::ggplot() +
+  ggplot2::geom_sf(aes(fill = log(pop)), colour="white", lwd = 0.1) +
+  ggplot2::coord_sf(datum = NA) +
+  viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
+  # ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 1, 
+  #                     shape = 4, color = "red") +
+  ggplot2::labs(title = "Population, Brasil, 2017", fill="Inhabitants (log)") +
+  fineprintutils::theme_map2() +
+  ggplot2::theme(legend.position = "bottom",
+                 legend.justification = "center") +
+  guides(fill = guide_colorbar(
+    barheight = unit(2, units = "mm"),
+    barwidth = unit(140, units = "mm"),
+    title.position = "top",
+    title.hjust = 0.5,
+    label.hjust = 1))
+ggplot2::ggsave("brasil/output/maps/brasil_pop_2016.png", plot = last_plot(), device = "png",
+                scale = 1, width = 400, height = 300, units = "mm")
+
+# gdp
+sf_panel %>%
+  dplyr::filter(year == 2016) %>% 
+  ggplot2::ggplot() +
+  ggplot2::geom_sf(aes(fill = log(gdp_current_thousand_reais)), colour="white", lwd = 0.1) +
+  ggplot2::coord_sf(datum = NA) +
+  viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
+  # ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 1, 
+  #                     shape = 4, color = "red") +
+  ggplot2::labs(title = "Regional GDP, Brasil, 2017", fill="GDP in current Real (thousand, log)") +
+  fineprintutils::theme_map2() +
+  ggplot2::theme(legend.position = "bottom",
+                 legend.justification = "center") +
+  guides(fill = guide_colorbar(
+    barheight = unit(2, units = "mm"),
+    barwidth = unit(140, units = "mm"),
+    title.position = "top",
+    title.hjust = 0.5,
+    label.hjust = 1))
+ggplot2::ggsave("brasil/output/maps/brasil_gdp_2016.png", plot = last_plot(), device = "png",
+                scale = 1, width = 400, height = 300, units = "mm")
+
+# gdp per capita
+sf_panel %>%
+  dplyr::filter(year == 2016) %>% 
+  dplyr::mutate(gdp_cap = log(gdp_current_thousand_reais / pop)) %>%
+  ggplot2::ggplot() +
+  ggplot2::geom_sf(aes(fill = gdp_cap), colour="white", lwd = 0.1) +
+  ggplot2::coord_sf(datum = NA) +
+  viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
+  # ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 1, 
+  #                     shape = 4, color = "red") +
+  ggplot2::labs(title = "Regional GDP, Brasil, 2017", fill="GDP in thousand current Real per capita (log)") +
+  fineprintutils::theme_map2() +
+  ggplot2::theme(legend.position = "bottom",
+                 legend.justification = "center") +
+  guides(fill = guide_colorbar(
+    barheight = unit(2, units = "mm"),
+    barwidth = unit(140, units = "mm"),
+    title.position = "top",
+    title.hjust = 0.5,
+    label.hjust = 1))
+ggplot2::ggsave("brasil/output/maps/brasil_gdp_cap_2016.png", plot = last_plot(), device = "png",
+                scale = 1, width = 400, height = 300, units = "mm")
 
 # merge ports into data ---------------------------------------------------
 
