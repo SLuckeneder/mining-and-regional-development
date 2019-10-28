@@ -48,6 +48,7 @@ brasil/input/SEL_brasil.RData
 brasil/input/anm
 brasil/input/mdic
 brasil/input/ibge
+brasil/input/panel.RData
 
 # output
 output/
