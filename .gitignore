@@ -49,6 +49,7 @@ brasil/input/anm
 brasil/input/mdic
 brasil/input/ibge
 brasil/input/panel.RData
+brasil/input/full_panel.RData
 
 # output
 output/
