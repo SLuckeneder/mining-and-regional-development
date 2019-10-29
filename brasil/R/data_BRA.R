@@ -8,6 +8,7 @@ library(stringr)
 # spatial polygon data frames ---------------------------------------------
 
 # Source: https://gadm.org/ 
+# issue: MANAUS is missing!
 
 path <- "brasil/input/gadm"
 
@@ -158,7 +159,7 @@ sf_panel <- sf_panel %>% dplyr::left_join(snl_data_sf_agg_panel, by = c("GID_2",
 
 # TO BE IMPLEMENTED
 
-# ports <- read.csv("brasil/input/ports.csv", sep = ";") MANAUS MISSING!!
+ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
 
 
 
@@ -329,8 +330,35 @@ ggplot2::ggsave("brasil/output/maps/brasil_gdp_cap_2016.png", plot = last_plot()
 # merge ports into data ---------------------------------------------------
 
 # panel
-spdf_panel <- spdf_panel %>% dplyr::left_join(ports %>% dplyr::select(GID_1, large_port), by = "GID_1")
+sf_panel <- sf_panel %>% dplyr::left_join(ports %>% dplyr::select(GID_2, large_port), by = "GID_2")
+
+
+
+# some corrections --------------------------------------------------------
+
+# check coverage
+min(sf_panel$year)
+max(sf_panel$year)
+sub <- na.omit(sf_panel)
+min(sub$year)
+max(sub$year)
+
+# there is no pop data for 2007 and 2010 -> take mean values of previous and following year
+
+# TO BE IMPLEMENTED
+
 
 # save full spatial data --------------------------------------------------
 
-save(spdf_panel, file = "input/full_panel.RData")
+save(sf_panel, file = "brasil/input/full_panel.RData")
+
+# for later: exlude all regions for which there is no IBGE data
+conc_ibge <- read.csv("brasil/input/conc_mun.csv", sep = ";", stringsAsFactors = FALSE)
+conc_gadm <- sf_BRA %>% dplyr::select(GID_2, NAME_2) %>% sf::st_set_geometry(NULL)
+conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactors = FALSE)
+
+# c(setdiff(conc$GID_2, conc_gadm$GID_2), setdiff(conc_gadm$GID_2, conc$GID_2))
+
+missing_polygons <- setdiff(conc_gadm$GID_2, conc$GID_2) #can be investigated a bit more at a later stage
+save(missing_polygons, file = "brasil/input/missing_polygons.RData")
+
