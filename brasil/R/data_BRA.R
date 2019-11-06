@@ -30,7 +30,8 @@ sf_panel <- sf_BRA
 load("brasil/input/SEL_brasil.RData")
 
 snl_data <- data %>%
-  dplyr::mutate(value = value / 1000)
+  dplyr::mutate(value = value / 1000) %>%
+  dplyr::filter(commodity == "OreProcessed")
 
 # remove observations without coords
 snl_data <- snl_data %>%
@@ -53,23 +54,50 @@ snl_data_sf_agg_panel <- snl_data_sf_agg
 
 # select year (cross-section)
 snl_data_sf_agg_2010 <- snl_data_sf_agg %>% dplyr::filter(year == 2010)
+snl_data_sf_agg_2016 <- snl_data_sf_agg %>% dplyr::filter(year == 2016)
 snl_data_sf_agg_2017 <- snl_data_sf_agg %>% dplyr::filter(year == 2017)
 
 # merge aggregates of selected year into sf (cross-section)
 sf_BRA_2010 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2010, by = "GID_2")
+sf_BRA_2016 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2016, by = "GID_2")
 sf_BRA_2017 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2017, by = "GID_2")
 
 # # subset to overcome memory problems when plotting
 # sf_ore_2010 <- sf_BRA_2010
 # sf_ore_2017 <- sf_BRA_2017
 
+
+# ore extraction maps -----------------------------------------------------
+
+# zoom table
+zoom_bbox <- tibble::tribble(
+  ~region,                    ~x_lim,            ~y_lim,
+  "Chile",          c(-76.00, -67.00), c(-57.00, -14.00),
+  "Latin America",  c( -88.00, -31.00), c(-58.00, 13.00),
+  "Peru",           c(-82.00, -68.00), c(-19.00, 00.50),
+  "Mexico",         c(-119.00, -84.00), c(13.00, 33.00),
+  "Minas Gerais",   c(-52.00, -39.00), c(-23.00, -13.00),
+  "Brasil",         c(-74.00, -34.00), c(-34.00, 6.00)
+) %>% 
+  dplyr::mutate(geometry = lapply(seq_along(region), function(i) sf::st_multipoint(matrix(c(x_lim[[i]], y_lim[[i]]), nrow = 2))),
+                group = 1,
+                geometry = lapply(geometry, sf::st_bbox),
+                geometry = lapply(geometry, sf::st_as_sfc),
+                geometry = lapply(geometry, sf::st_geometrycollection),
+                geometry = sf::st_sfc(geometry)) %>% 
+  sf::st_sf() %>% 
+  sf::st_collection_extract()
+
+lim <- zoom_bbox %>% 
+  dplyr::filter(region == "Brasil")
+
 sf_BRA_2010 %>% ggplot2::ggplot() +
   ggplot2::geom_sf(aes(fill = log(ore_extraction))) +
-  ggplot2::coord_sf(datum = NA) +
+  ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
   viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
-  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2010"), aes(x = X, y = Y), size = 1, 
-             shape = 4, color = "red") +
-  ggplot2::labs(title = "Mining activities, Brasil, 2010", fill="Ore processed (log)") +
+  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2010"), aes(x = X, y = Y), size = 2, 
+             shape = 15, color = "red") +
+  ggplot2::labs(title = "Mining activities, Brasil, 2010", fill="Ore processed (kilotonnes, log)") +
   fineprintutils::theme_map2() +
   ggplot2::theme(legend.position = "bottom",
                  legend.justification = "center") +
@@ -80,15 +108,38 @@ sf_BRA_2010 %>% ggplot2::ggplot() +
     title.hjust = 0.5,
     label.hjust = 1))
 ggplot2::ggsave("brasil/output/maps/brasil_ore_2010.png", plot = last_plot(), device = "png",
-                scale = 1, width = 400, height = 300, units = "mm")
+                scale = 1, width = 270, height = 300, units = "mm")
+
+pfull <- sf_BRA_2016 %>% ggplot2::ggplot() +
+  ggplot2::geom_sf(aes(fill = log(ore_extraction))) +
+  ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
+  viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
+  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2016"), aes(x = X, y = Y), size = 2, 
+                      shape = 15, color = "red") +
+  ggplot2::labs(title = NULL, fill="Ore processed (kilotonnes, log)") +
+  fineprintutils::theme_map2() +
+  ggplot2::theme(legend.position = "bottom",
+                 legend.justification = "center",
+                 legend.box.margin=margin(-10,-10, 0,-10, unit = "mm"),
+                 legend.title=element_text(size=15),
+                 legend.text=element_text(size=15),
+                 plot.margin=unit(c(-10, -10, 0, -10),"mm")) +
+  guides(fill = guide_colorbar(
+    barheight = unit(2, units = "mm"),
+    barwidth = unit(140, units = "mm"),
+    title.position = "top",
+    title.hjust = 0.5,
+    label.hjust = 1))
+ggplot2::ggsave("brasil/output/maps/brasil_ore_2016.png", plot = pfull, device = "png",
+                scale = 1, width = 270, height = 300, units = "mm")
 
 sf_BRA_2017 %>% ggplot2::ggplot() +
   ggplot2::geom_sf(aes(fill = log(ore_extraction))) +
-  ggplot2::coord_sf(datum = NA) +
+  ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
   viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
-  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 1, 
-                      shape = 4, color = "red") +
-  ggplot2::labs(title = "Mining activities, Brasil, 2017", fill="Ore processed (log)") +
+  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 2, 
+                      shape = 15, color = "red") +
+  ggplot2::labs(title = "Mining activities, Brasil, 2017", fill="Ore processed (kilotonnes, log)") +
   fineprintutils::theme_map2() +
   ggplot2::theme(legend.position = "bottom",
                  legend.justification = "center") +
@@ -99,25 +150,10 @@ sf_BRA_2017 %>% ggplot2::ggplot() +
     title.hjust = 0.5,
     label.hjust = 1))
 ggplot2::ggsave("brasil/output/maps/brasil_ore_2017.png", plot = last_plot(), device = "png",
-                scale = 1, width = 400, height = 300, units = "mm")
+                scale = 1, width = 270, height = 300, units = "mm")
+
 
 # zoom into minas gerais
-zoom_bbox <- tibble::tribble(
-  ~region,                    ~x_lim,            ~y_lim,
-  "Chile",          c(-76.00, -67.00), c(-57.00, -14.00),
-  "Latin America",  c( -88.00, -31.00), c(-58.00, 13.00),
-  "Peru",           c(-82.00, -68.00), c(-19.00, 00.50),
-  "Mexico",         c(-119.00, -84.00), c(13.00, 33.00),
-  "Minas Gerais",   c(-52.00, -39.00), c(-23.00, -13.00)
-) %>% 
-  dplyr::mutate(geometry = lapply(seq_along(region), function(i) sf::st_multipoint(matrix(c(x_lim[[i]], y_lim[[i]]), nrow = 2))),
-                group = 1,
-                geometry = lapply(geometry, sf::st_bbox),
-                geometry = lapply(geometry, sf::st_as_sfc),
-                geometry = lapply(geometry, sf::st_geometrycollection),
-                geometry = sf::st_sfc(geometry)) %>% 
-  sf::st_sf() %>% 
-  sf::st_collection_extract()
 lim <- zoom_bbox %>% 
   dplyr::filter(region == "Minas Gerais")
 
@@ -126,7 +162,7 @@ sf_BRA_2017 %>% ggplot2::ggplot() +
   ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
   viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
   ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 2, 
-                      shape = 4, color = "red") +
+                      shape = 15, color = "red") +
   ggplot2::labs(title = "Mining activities, Minas Gerais, Brasil, 2017", fill="Ore processed (log)") +
   fineprintutils::theme_map2() +
   ggplot2::theme(legend.position = "bottom",
@@ -139,6 +175,41 @@ sf_BRA_2017 %>% ggplot2::ggplot() +
     label.hjust = 1))
 ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2017.png", plot = last_plot(), device = "png",
                 scale = 1, width = 400, height = 300, units = "mm")
+
+pzoom <- sf_BRA_2016 %>% ggplot2::ggplot() +
+  ggplot2::geom_sf(aes(fill = log(ore_extraction))) +
+  ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
+  viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
+  ggplot2::geom_point(data = data %>% dplyr::filter(year == "2016"), aes(x = X, y = Y), size = 2, 
+                      shape = 15, color = "red") +
+  ggplot2::labs(title = NULL, fill="Ore processed (log)") +
+  fineprintutils::theme_map2() +
+  ggplot2::theme(legend.position = "none",
+                 legend.justification = "center",
+                 panel.background = element_rect(color='black', fill="white")) +
+  guides(fill = guide_colorbar(
+    barheight = unit(2, units = "mm"),
+    barwidth = unit(140, units = "mm"),
+    title.position = "top",
+    title.hjust = 0.5,
+    label.hjust = 1))
+ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2016.png", plot = pzoom, device = "png",
+                scale = 1, width = 400, height = 300, units = "mm")
+
+
+# put Brasil 2016 and minas gerais zoom together
+lim <- zoom_bbox %>% 
+  dplyr::filter(region == "Brasil")
+
+g <- ggplotGrob(pzoom)
+p <- pfull +
+  ggplot2::theme(plot.margin=unit(c(-10, 100, 0, -10),"mm")) +
+  annotation_custom(grob = g, 
+                    xmin = max(lim$x_lim[[1]]) - 12, xmax = max(lim$x_lim[[1]]) + 23, 
+                    ymin = min(lim$y_lim[[1]]), ymax = min(lim$y_lim[[1]]) + 20) 
+ggplot2::ggsave("brasil/output/maps/brasil_ore_incl_zoom_2016.png", plot = p, device = "png",
+                scale = 1, width = 400, height = 300, units = "mm")
+
 
 
 ### extend to shp to panel and merge extraction data
@@ -260,6 +331,9 @@ colnames(sf_panel) <- c("GID_2", "year", "ore_extraction", "tax", "pop",
 
 # map descriptives --------------------------------------------------------
 
+lim <- zoom_bbox %>% 
+  dplyr::filter(region == "Brasil")
+
 # population
 sf_panel %>%
   dplyr::filter(year == 2016) %>% 
@@ -272,7 +346,11 @@ sf_panel %>%
   ggplot2::labs(title = "Population, Brasil, 2017", fill="Inhabitants (log)") +
   fineprintutils::theme_map2() +
   ggplot2::theme(legend.position = "bottom",
-                 legend.justification = "center") +
+                 legend.justification = "center",
+                 legend.box.margin=margin(-10,-10, 0,-10, unit = "mm"),
+                 legend.title=element_text(size=15),
+                 legend.text=element_text(size=15),
+                 plot.margin=unit(c(-10, -10, 0, -10),"mm")) +
   guides(fill = guide_colorbar(
     barheight = unit(2, units = "mm"),
     barwidth = unit(140, units = "mm"),
@@ -280,7 +358,7 @@ sf_panel %>%
     title.hjust = 0.5,
     label.hjust = 1))
 ggplot2::ggsave("brasil/output/maps/brasil_pop_2016.png", plot = last_plot(), device = "png",
-                scale = 1, width = 400, height = 300, units = "mm")
+                scale = 1, width = 270, height = 300, units = "mm")
 
 # gdp
 sf_panel %>%
@@ -294,7 +372,11 @@ sf_panel %>%
   ggplot2::labs(title = "Regional GDP, Brasil, 2017", fill="GDP in current Real (thousand, log)") +
   fineprintutils::theme_map2() +
   ggplot2::theme(legend.position = "bottom",
-                 legend.justification = "center") +
+                 legend.justification = "center",
+                 legend.box.margin=margin(-10,-10, 0,-10, unit = "mm"),
+                 legend.title=element_text(size=15),
+                 legend.text=element_text(size=15),
+                 plot.margin=unit(c(-10, -10, 0, -10),"mm")) +
   guides(fill = guide_colorbar(
     barheight = unit(2, units = "mm"),
     barwidth = unit(140, units = "mm"),
@@ -302,7 +384,7 @@ sf_panel %>%
     title.hjust = 0.5,
     label.hjust = 1))
 ggplot2::ggsave("brasil/output/maps/brasil_gdp_2016.png", plot = last_plot(), device = "png",
-                scale = 1, width = 400, height = 300, units = "mm")
+                scale = 1, width = 270, height = 300, units = "mm")
 
 # gdp per capita
 sf_panel %>%
@@ -310,14 +392,18 @@ sf_panel %>%
   dplyr::mutate(gdp_cap = log(gdp_current_thousand_reais / pop)) %>%
   ggplot2::ggplot() +
   ggplot2::geom_sf(aes(fill = gdp_cap), colour="white", lwd = 0.1) +
-  ggplot2::coord_sf(datum = NA) +
+  ggplot2::coord_sf(datum = NA, xlim = lim$x_lim[[1]], ylim = lim$y_lim[[1]]) +
   viridis::scale_fill_viridis(na.value = NA, option = "viridis") +
   # ggplot2::geom_point(data = data %>% dplyr::filter(year == "2017"), aes(x = X, y = Y), size = 1, 
   #                     shape = 4, color = "red") +
-  ggplot2::labs(title = "Regional GDP, Brasil, 2017", fill="GDP in thousand current Real per capita (log)") +
+  ggplot2::labs(title = NULL, fill="GDP in thousand current Real per capita (log)") +
   fineprintutils::theme_map2() +
   ggplot2::theme(legend.position = "bottom",
-                 legend.justification = "center") +
+                 legend.justification = "center",
+                 legend.box.margin=margin(-10,-10, 0,-10, unit = "mm"),
+                 legend.title=element_text(size=15),
+                 legend.text=element_text(size=15),
+                 plot.margin=unit(c(-10, -10, 0, -10),"mm")) +
   guides(fill = guide_colorbar(
     barheight = unit(2, units = "mm"),
     barwidth = unit(140, units = "mm"),
@@ -325,9 +411,9 @@ sf_panel %>%
     title.hjust = 0.5,
     label.hjust = 1))
 ggplot2::ggsave("brasil/output/maps/brasil_gdp_cap_2016.png", plot = last_plot(), device = "png",
-                scale = 1, width = 400, height = 300, units = "mm")
+                scale = 1, width = 270, height = 300, units = "mm")
 
-# merge ports into data ---------------------------------------------------
+  # merge ports into data ---------------------------------------------------
 
 # panel
 sf_panel <- sf_panel %>% dplyr::left_join(ports %>% dplyr::select(GID_2, large_port), by = "GID_2")
