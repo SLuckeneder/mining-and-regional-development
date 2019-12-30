@@ -43,6 +43,7 @@ rsconnect/
 input/full_panel.RData
 input/panel.RData
 input/oecd
+input_open/
 
 brasil/input/SEL_brasil.RData
 brasil/input/anm
@@ -50,6 +51,7 @@ brasil/input/mdic
 brasil/input/ibge
 brasil/input/panel.RData
 brasil/input/full_panel.RData
+brasil/input_open/
 
 # output
 output/
