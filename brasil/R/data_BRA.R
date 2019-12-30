@@ -237,10 +237,10 @@ ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
 
 # IBGE demographics -------------------------------------------------------
 
-ibge_pop <- read.csv("brasil/input/ibge/pop_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE) 
+ibge_pop <- read.csv("brasil/input/ibge/pop_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, check.names = F) 
 ibge_pop <- ibge_pop %>%
+  `colnames<-`(c("level", "id", "municipio", "year", "variable", "value", "empty")) %>%
   dplyr::select(c(1:6)) %>%
-  `colnames<-`(c("level", "id", "municipio", "year", "variable", "value")) %>%
   dplyr::filter(level == "MU") %>%
   dplyr::select(-level) %>%
   dplyr::mutate(state = stringr::str_sub(municipio,-4)) %>%
@@ -252,7 +252,7 @@ ibge_pop <- ibge_pop %>%
 
 # IBGE economics ----------------------------------------------------------
 
-ibge_gdp <- read.csv("brasil/input/ibge/gdp_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE) 
+ibge_gdp <- read.csv("brasil/input/ibge/gdp_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, check.names = F) 
 ibge_gdp <- ibge_gdp %>%
   `colnames<-`(c("level", "id", "municipio", "year", "variable", "value")) %>%
   dplyr::filter(level == "MU") %>%
