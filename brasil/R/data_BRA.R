@@ -4,6 +4,9 @@ library(tidyverse)
 library(viridis)
 library(fineprintutils)
 library(stringr)
+library(zoo)
+library(imputeTS)
+
 
 # spatial polygon data frames ---------------------------------------------
 
@@ -28,6 +31,294 @@ sf_panel <- sf_BRA
 # ore extraction data -----------------------------------------------------
 
 load("brasil/input/SEL_brasil.RData")
+data <- data %>% dplyr::mutate(source = "snl")
+
+# to do: find conversion factors; # Ask Mirko!
+# idea: calculate average conversion factors from all mines where we know ore processed and metal content 
+# (except for commodities with few cases such as cobalt)
+
+# Bauxite: value = ore?
+mines <- data %>% filter(commodity %in% "Bauxite") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Bauxite") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+# only 2 mines report both. ore processed is way higher, but still bauxite is nothing else than aluminum ore, hence these nrs might be dead rock
+duplicate_ore <- data %>% filter(commodity %in% "Bauxite") %>% mutate(commodity = "OreProcessed", source = "estimate")
+data <- bind_rows(data, duplicate_ore)
+rm(duplicate_ore, mines, content, ore)
+#
+# Coal: value = ore?
+mines <- data %>% filter(commodity %in% "Coal") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Coal") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+# only 2 mines report both. ore processed is way higher, but still bauxite is nothing else than aluminum ore, hence these nrs might be dead rock
+duplicate_ore <- data %>% filter(commodity %in% "Coal") %>% mutate(commodity = "OreProcessed", source = "estimate")
+data <- bind_rows(data, duplicate_ore)
+rm(duplicate_ore, mines, content, ore)
+#
+# Cobalt: only 3 mines
+# Tocantins: ore processed available
+# Santa Rita: ore processed available 2010-2014, 2016 (2015 generally missing). avg ore grade calculated ftom them is 0.00005 -> only 2009 missing and it is a very small amount
+# Fortaleza de Minas: ore processed available
+# 
+# Copper: only 8 mines
+# Chapada: ore processed available
+# Fortaleza de Minas: ore processed available
+# MCSA Mining Complex: ore processed available
+# Palito: ore processed available
+# Rio Verde: ore processed available
+# Salobo: ore processed available
+# Santa Rita: ore processed available 2010-2014, 2016 (2015 generally missing) -> only 2009 missing and it is a very small amount
+# Sossego: ore processed available only for 2004 and 2018. -> calculate avg ore grade and fill data
+mines <- data %>% filter(commodity %in% "Copper") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Copper") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Copper") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# 
+# Diamonds: only 5 mines
+# Chapada: ore processed available
+# Duas Barras: difficult. only 2007 data includes diamonds and ore processed. best case find grades somewhere
+# Melgueira: only 1 observation, very small amount, can be dropped
+# Property 214: ore processed available
+# Sao Luis River Basin: only 3 observations, drop...
+# 
+# Gold: large number of mines (35), apply average conversion factors on all primary commodity gold mines
+mines <- data %>% filter(commodity %in% "Gold") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Gold") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Gold") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+
+# Ilmenite
+# only 1 mine (Buena); ore processed available
+# 
+# Iron ore: value = ore?; lets check if there exists a mine reporting both
+mines <- data %>% filter(commodity %in% "Iron Ore") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Iron Ore") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+# only 6 mines report both. ore processed is higher, but not remarkably; hence I choose to take value as ore
+duplicate_ore <- data %>% filter(commodity %in% "Iron Ore") %>% mutate(commodity = "OreProcessed", source = "estimate")
+data <- bind_rows(data, duplicate_ore)
+rm(duplicate_ore, mines, content, ore)
+# 
+# Lanthanides
+# only 1 mine (Buena); ore processed available
+# 
+# Lead
+# only 3 mines
+# Morro Agudo: ore processed available (except 2004)
+# Vazante: ore processed available 
+# Vermelho: ore processed available 
+# 
+# Lithium: only 2 mines
+# Cachoeira: ore processed only available for 2017 and 2018 -> apply conversion factor 1066 / 59871 = 0.01780495 for all other observations
+mines <- data %>% filter(commodity %in% "Lithium") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Lithium") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Lithium") %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Lithium") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# Mibra: ore processed available 
+# 
+# Manganese: only 4 mines, but quite some work to do here
+# Azul: ore processed only available for 2009, 2010 and 2012, but manganese content is almost same amount -> apply content as ore processed
+# Morro da Mina: ore processed only available for 2011-2013. here manganese content is much smaller -> apply mean conversion factor for all other observations
+# Rio Madeira: no ore processed available. do some research or apply mean conversion factor
+# Urucum: only estimate from iron ore available -> do some research or re-calculate summing up both iron ore and manganese
+# 
+# Nickel: 9 mines
+# Americano do Brasil: ore processed available 
+# Barro Alto: ore processed available 
+# Codemin: ore processed available 
+# Fortaleza de Minas: ore processed available except earlier years -> apply conversion rate
+mines <- data %>% filter(commodity %in% "Nickel") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Nickel") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Nickel") %>%
+  mutate(conversion_factor = value / ore_tonnes) %>%
+  filter(mine == "Fortaleza de Minas")
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(mine == "Fortaleza de Minas") %>%
+  filter(primary_commodity == "Nickel") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# Onca Puma: ore processed available 
+# Santa Rita: ore processed available 
+# Tocantins: 2004-2006 missing -> apply conversion rate
+mines <- data %>% filter(commodity %in% "Nickel") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Nickel") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Nickel") %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Nickel") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# 
+# Niobium: only 2 mines
+# Araxa: only 1 observation (2000) but no ore processed available
+# Catalao de Goias: ore processed available 
+# 
+# Phosphate: 10 mines
+# Angico dos Dias: ore processed available for 2010, only phosphate for 2015-2017 -> conversion factor or more research
+# Araxa: only phospgate -> if possible apply conversion factor, more research else
+# Bonfim: only 1 observation, no ore processed -> if possible apply conversion factor, more research else
+# Cajati, Catalao, Chapadao, Itafos, Lagamar, Patos de Minas, Tapira
+mines <- data %>% filter(commodity %in% "Phosphate") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Phosphate") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Phosphate") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# 
+# Potash: 1 mine
+# Taquari-Vassouras, no ore processed available
+# 
+# Rutile: 1 mine
+# Buena: 2001, 2010, 2011 missing -> more research
+# 
+# Silver: 10 mines, none is primarily a silver mine
+# 
+# Tantalum: 1 mine
+# Mibra: no ore processed available
+# 
+# Tin: 4 mines -> apply mean conversion factor
+# Bom Futuro: only content available
+# Estanho de Rondonia SA: only content available
+# Pitinga: ore processed available for more recent years
+# Santa Barbara: only content available
+mines <- data %>% filter(commodity %in% "Tin") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Tin") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Tin") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# 
+# U3O8 i.e. Uran
+# 1 mine, ore processed only for latest years -> calculate and apply conversion factor
+mines <- data %>% filter(commodity %in% "U3O8") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "U3O8") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "U3O8") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# 
+# Vanadium: 1mine
+# Vanadio de Maracas Menchen: no ore processed available -> research -> avg grade of 1.14% assumed https://miningdataonline.com/property/551/Maracas-Menchen-Mine.aspx
+mines <- data %>% filter(commodity %in% "Vanadium") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Vanadium") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+# only 6 mines report both. ore processed is higher, but not remarkably; hence I choose to take value as ore
+duplicate_ore <- data %>% filter(commodity %in% "Vanadium") %>% mutate(commodity = "OreProcessed", source = "estimate") %>%
+  mutate(value = value / 0.0114)
+data <- bind_rows(data, duplicate_ore)
+rm(duplicate_ore, mines, content, ore)
+# 
+# Zinc: 5 mines -> apply mean conversion factor
+# Aripuana: only content available
+# Monte Cristo: only content available
+# Morro Agudo: ore processed available and zinc mine
+# Tres Marias: ore processed only available for 2008 and 2009. Previous in content
+# Vazante: ore processed available and zinc mine
+mines <- data %>% filter(commodity %in% "Zinc") %>% select(mine) %>% distinct()
+content <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "Zinc") %>% mutate(unid = paste(snl_id, year, sep = "."))
+ore <- data %>% filter(mine %in% mines$mine) %>% filter(commodity %in% "OreProcessed") %>% mutate(unid = paste(snl_id, year, sep = "."))
+train <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(!is.na(ore_tonnes)) %>%
+  mutate(conversion_factor = value / ore_tonnes)
+cf <- mean(train$conversion_factor)
+apply_cf <- left_join(content, ore %>% select(unid, value) %>% rename(ore_tonnes = value), by = "unid") %>%
+  filter(is.na(ore_tonnes)) %>%
+  filter(primary_commodity == "Zinc") %>%
+  mutate(ore_tonnes = value / cf) %>%
+  select(-unid, -value) %>%
+  rename(value = ore_tonnes) %>%
+  mutate(commodity = "OreProcessed", unit = "tonnes", source = "estimate")
+data <- bind_rows(data, apply_cf)
+rm(cf, apply_cf, mines, content, ore, train)
+# 
+# Zircon: 1 mine
+# Buena: ore processed available
+
 
 snl_data <- data %>%
   dplyr::mutate(value = value / 1000) %>%
@@ -107,7 +398,7 @@ sf_BRA_2010 %>% ggplot2::ggplot() +
     title.position = "top",
     title.hjust = 0.5,
     label.hjust = 1))
-ggplot2::ggsave("brasil/output/maps/brasil_ore_2010.png", plot = last_plot(), device = "png",
+ggplot2::ggsave("brasil/output/maps/brasil_ore_2010_mod.png", plot = last_plot(), device = "png",
                 scale = 1, width = 270, height = 300, units = "mm")
 
 pfull <- sf_BRA_2016 %>% ggplot2::ggplot() +
@@ -130,7 +421,7 @@ pfull <- sf_BRA_2016 %>% ggplot2::ggplot() +
     title.position = "top",
     title.hjust = 0.5,
     label.hjust = 1))
-ggplot2::ggsave("brasil/output/maps/brasil_ore_2016.png", plot = pfull, device = "png",
+ggplot2::ggsave("brasil/output/maps/brasil_ore_2016_mod.png", plot = pfull, device = "png",
                 scale = 1, width = 270, height = 300, units = "mm")
 
 sf_BRA_2017 %>% ggplot2::ggplot() +
@@ -149,7 +440,7 @@ sf_BRA_2017 %>% ggplot2::ggplot() +
     title.position = "top",
     title.hjust = 0.5,
     label.hjust = 1))
-ggplot2::ggsave("brasil/output/maps/brasil_ore_2017.png", plot = last_plot(), device = "png",
+ggplot2::ggsave("brasil/output/maps/brasil_ore_2017_mod.png", plot = last_plot(), device = "png",
                 scale = 1, width = 270, height = 300, units = "mm")
 
 
@@ -173,7 +464,7 @@ sf_BRA_2017 %>% ggplot2::ggplot() +
     title.position = "top",
     title.hjust = 0.5,
     label.hjust = 1))
-ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2017.png", plot = last_plot(), device = "png",
+ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2017_mod.png", plot = last_plot(), device = "png",
                 scale = 1, width = 400, height = 300, units = "mm")
 
 pzoom <- sf_BRA_2016 %>% ggplot2::ggplot() +
@@ -193,7 +484,7 @@ pzoom <- sf_BRA_2016 %>% ggplot2::ggplot() +
     title.position = "top",
     title.hjust = 0.5,
     label.hjust = 1))
-ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2016.png", plot = pzoom, device = "png",
+ggplot2::ggsave("brasil/output/maps/minas_gerais_ore_2016_mod.png", plot = pzoom, device = "png",
                 scale = 1, width = 400, height = 300, units = "mm")
 
 
@@ -207,7 +498,7 @@ p <- pfull +
   annotation_custom(grob = g, 
                     xmin = max(lim$x_lim[[1]]) - 12, xmax = max(lim$x_lim[[1]]) + 23, 
                     ymin = min(lim$y_lim[[1]]), ymax = min(lim$y_lim[[1]]) + 20) 
-ggplot2::ggsave("brasil/output/maps/brasil_ore_incl_zoom_2016.png", plot = p, device = "png",
+ggplot2::ggsave("brasil/output/maps/brasil_ore_incl_zoom_2016_mod.png", plot = p, device = "png",
                 scale = 1, width = 400, height = 300, units = "mm")
 
 
@@ -237,7 +528,8 @@ ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
 
 # IBGE demographics -------------------------------------------------------
 
-ibge_pop <- read.csv("brasil/input/ibge/pop_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, check.names = F) 
+ibge_pop <- read.csv("brasil/input/ibge/pop_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, 
+                     check.names = F, fileEncoding="latin1") 
 ibge_pop <- ibge_pop %>%
   `colnames<-`(c("level", "id", "municipio", "year", "variable", "value", "empty")) %>%
   dplyr::select(c(1:6)) %>%
@@ -249,10 +541,39 @@ ibge_pop <- ibge_pop %>%
   dplyr::mutate(municipio = substr(municipio,1,nchar(ibge_pop$municipio)-4)) %>%
   dplyr::mutate(value = as.numeric(value))
 
+unique(ibge_pop$year)
+# there is no pop data for 2007 and 2010 -> take mean values of previous and following year
+
+df <- data.frame("id" = rep(unique(ibge_pop$id), each = 2),
+                 "year" = as.character(rep(c(2007, 2010)), each = 2)) 
+
+ibge_pop <- dplyr::bind_rows(ibge_pop, df) %>%
+  dplyr::arrange(id, year)
+
+x <- ibge_pop %>% dplyr::group_by(id) %>%
+  dplyr::mutate(value = imputeTS::na_ma(value, k = 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(value)
+
+# check
+y <- data.frame(ibge_pop$value, x)
+
+# apply to ibge_pop df
+ibge_pop <- ibge_pop %>% dplyr::group_by(id) %>%
+  dplyr::mutate(value = imputeTS::na_ma(value, k = 1)) %>%
+  dplyr::ungroup() 
+
+# fill time invariant NAs
+ibge_pop <- ibge_pop %>% 
+  dplyr::mutate(municipio = zoo::na.locf(municipio),
+                variable = zoo::na.locf(variable),
+                state = zoo::na.locf(state))
+
 
 # IBGE economics ----------------------------------------------------------
 
-ibge_gdp <- read.csv("brasil/input/ibge/gdp_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, check.names = F) 
+ibge_gdp <- read.csv("brasil/input/ibge/gdp_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, 
+                     check.names = F, fileEncoding="latin1") 
 ibge_gdp <- ibge_gdp %>%
   `colnames<-`(c("level", "id", "municipio", "year", "variable", "value")) %>%
   dplyr::filter(level == "MU") %>%
@@ -263,7 +584,6 @@ ibge_gdp <- ibge_gdp %>%
   dplyr::mutate(municipio = substr(municipio,1,nchar(ibge_gdp$municipio)-4)) %>%
   dplyr::mutate(value = as.numeric(value)) %>%
   dplyr::mutate(year = as.character(year))
-
 
 
 # merge data --------------------------------------------------------------
@@ -302,7 +622,7 @@ ibge_data <- ibge_data %>% dplyr::full_join(conc, by = c("id" = "CO_MUN_GEO"))
 # check for NAs
 check <- ibge_data %>% 
   dplyr::filter(year == 2003) %>%
-  dplyr::filter(variable == "Produto Interno Bruto a pre‡os correntes (Mil Reais)") %>%
+  dplyr::filter(variable == "Produto Interno Bruto a pre\u0087os correntes (Mil Reais)") %>%
   dplyr::filter(is.na(GID_2))
 # ca 100, okay
 rm(check)
@@ -430,6 +750,9 @@ min(sub$year)
 max(sub$year)
 
 # there is no pop data for 2007 and 2010 -> take mean values of previous and following year
+
+# there is no XXXX data for 2001, 2007 and 2010, 2017 -> take mean values of previous and following year
+
 
 # TO BE IMPLEMENTED
 
