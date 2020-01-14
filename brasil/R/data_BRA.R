@@ -319,6 +319,8 @@ rm(cf, apply_cf, mines, content, ore, train)
 # Zircon: 1 mine
 # Buena: ore processed available
 
+# save mine data
+save(data, file = "brasil/input/mine_data.RData")
 
 snl_data <- data %>%
   dplyr::mutate(value = value / 1000) %>%
@@ -519,11 +521,7 @@ sf_panel <- sf_panel %>% dplyr::left_join(snl_data_sf_agg_panel, by = c("GID_2",
 
 # Source: https://www.searoutes.com/country-ports/Brazil
 
-# TO BE IMPLEMENTED
-
 ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
-
-
 
 
 # IBGE demographics -------------------------------------------------------
@@ -585,6 +583,9 @@ ibge_gdp <- ibge_gdp %>%
   dplyr::mutate(value = as.numeric(value)) %>%
   dplyr::mutate(year = as.character(year))
 
+unique(ibge_gdp$year)
+
+
 
 # merge data --------------------------------------------------------------
 
@@ -637,13 +638,13 @@ if("panel.RData" %in% dir("input")){
 } else{
   sf_panel <- sf_panel %>%
     dplyr::left_join(ibge_data , by = c("GID_2" = "GID_2", "year" = "year")) %>%
-    dplyr::select(GID_2, year, ore_extraction, variable, value)
+    dplyr::select(GID_2, GID_1, year, ore_extraction, variable, value)
   
   sf_panel <- tidyr::spread(sf_panel, variable, value, drop = TRUE)
   save(sf_panel, file = "brasil/input/panel.RData")
 }
 sf_panel <- sf_panel %>% dplyr::select(-`<NA>`)
-colnames(sf_panel) <- c("GID_2", "year", "ore_extraction", "tax", "pop", 
+colnames(sf_panel) <- c("GID_2", "GID_1", "year", "ore_extraction", "tax", "pop", 
                         "gdp_current_thousand_reais", "gva_public_service_current_thousand_reais",
                         "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais",
                         "gva_private_service_current_thousand_reais", "gva_current_thousand_reais",
@@ -733,12 +734,10 @@ sf_panel %>%
 ggplot2::ggsave("brasil/output/maps/brasil_gdp_cap_2016.png", plot = last_plot(), device = "png",
                 scale = 1, width = 270, height = 300, units = "mm")
 
-  # merge ports into data ---------------------------------------------------
+# merge ports into data ---------------------------------------------------
 
 # panel
 sf_panel <- sf_panel %>% dplyr::left_join(ports %>% dplyr::select(GID_2, large_port), by = "GID_2")
-
-
 
 # some corrections --------------------------------------------------------
 
@@ -750,11 +749,6 @@ min(sub$year)
 max(sub$year)
 
 # there is no pop data for 2007 and 2010 -> take mean values of previous and following year
-
-# there is no XXXX data for 2001, 2007 and 2010, 2017 -> take mean values of previous and following year
-
-
-# TO BE IMPLEMENTED
 
 
 # save full spatial data --------------------------------------------------
@@ -770,4 +764,5 @@ conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactor
 
 missing_polygons <- setdiff(conc_gadm$GID_2, conc$GID_2) #can be investigated a bit more at a later stage
 save(missing_polygons, file = "brasil/input/missing_polygons.RData")
+
 
