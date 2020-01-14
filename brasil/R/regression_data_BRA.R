@@ -4,42 +4,53 @@ load("brasil/input/missing_polygons.RData")
 
 # neighbours --------------------------------------------------------------
 
-W_data <- sf_BRA %>% 
-  dplyr::filter(NAME_0 %in% c_vector1)
-
+W_data <- sf_panel %>% 
+  dplyr::filter(year == t_vector[1]) %>%
+  dplyr::filter(gdp_current_thousand_reais > 0) %>%
+  dplyr::filter(!GID_2 %in% missing_polygons) # exluding all regions for which there is no IBGE data
+  
 # neighbours (see https://cran.r-project.org/web/packages/spdep/vignettes/nb_sf.html)
-# exlude all regions for which there is no IBGE data
 
-coords_sf <- sf::st_coordinates(sf::st_centroid(W_data) %>% dplyr::filter(!GID_2 %in% missing_polygons))
+coords_sf <- sf::st_coordinates(sf::st_centroid(W_data))
 W_k <- spdep::knearneigh(coords_sf, k = k_nn)
 knear_nb <- spdep::knn2nb(W_k)
 W_k <- spdep::nb2mat(knear_nb)
 
+# plot neighbours
+png("brasil/output/maps/knearest_map.png", width = 4000, height = 3000)
+#pdf("brasil/output/maps/knearest_map.pdf", width = 400, height = 300)
+plot(st_geometry(W_data), border="grey", lwd = 6)
+plot(knear_nb, coords = coords_sf, col = viridis(5)[2], lwd = 4, points=FALSE, add=TRUE)
+dev.off()
+
+
 # structure of W must fit Y and X
 W_str <- sf::st_centroid(W_data) %>% dplyr::filter(!GID_2 %in% missing_polygons) %>%
+  dplyr::filter(GID_2 != "BRA.20.50_1") %>%
   sf::st_set_geometry(NULL)
 
 # subset panel ------------------------------------------------------------
 
 data <- sf_panel %>% 
   dplyr::filter(year %in% t_vector) %>%
-  dplyr::filter(substr(GID_2, 1, 3) %in% c_vector2)
+  dplyr::filter(substr(GID_2, 1, 3) %in% c_vector2) %>%
+  dplyr::filter(gdp_current_thousand_reais > 0) %>%
+  dplyr::filter(!GID_2 %in% missing_polygons) %>% # exluding all regions for which there is no IBGE data
+  dplyr::filter(GID_2 != "BRA.20.50_1") # see bottom of this script
 
 # select variables
 X <- data %>%
   `colnames<-`(gsub("-.*", "", colnames(data))) %>%
   sf::st_set_geometry(NULL) %>% # drop geometry
-  dplyr::select("GID_2", "year", "gdp_current_thousand_reais", "ore_extraction", "pop", 
+  dplyr::select("GID_2", "GID_1", "year", "gdp_current_thousand_reais", "ore_extraction", "pop", 
                 "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais", "large_port") %>%
-  dplyr::mutate(gva_agriculture_current_thousand_reais = log(gva_agriculture_current_thousand_reais)) %>%
-  dplyr::mutate(gva_industry_current_thousand_reais = log(gva_industry_current_thousand_reais)) %>%
+  dplyr::mutate(gva_agriculture_current_thousand_reais = log(gva_agriculture_current_thousand_reais+1)) %>%
+  dplyr::mutate(gva_industry_current_thousand_reais = log(gva_industry_current_thousand_reais+1)) %>%
   dplyr::mutate(pop = log(pop)) %>%
   dplyr::mutate(ore_extraction = log(ore_extraction+1)) %>%
-  replace(is.na(.), 0) %>% # WORKS ONLY AS LONG AS ONLY ORE EXTRACTION DATA IS MISSING
-  dplyr::filter(gdp_current_thousand_reais > 0)
+  replace(is.na(.), 0) # WORKS ONLY AS LONG AS ONLY ORE EXTRACTION DATA IS MISSING
 
-# Dealing with NAs by setting = 0 is okay, since extraction is NA if there is none, 
-# and other NAs drop later because it is 2014 and 2015 (Peru) data
+# Dealing with NAs by setting = 0 is okay, since extraction is NA if there is none
 
 # calculate growth (in %)
 Y <- X %>%
@@ -59,7 +70,7 @@ X <- X %>%
   dplyr::mutate(int = rep(1, nrow(X))) %>%
   dplyr::select(vars) %>%
   dplyr::filter(! year %in% drop_horizon)
-coefs <- vars[! vars %in% c("GID_2", "year")]
+coefs <- vars[! vars %in% c("GID_2", "GID_1", "year")]
 
 # year dummies
 D <- dummies::dummy(X$year, sep = "_")[,-1]
@@ -97,10 +108,30 @@ C <- X %>%
                 bra_11,bra_12,bra_13,bra_14,bra_15,bra_16,bra_17,bra_18,bra_19,bra_20,
                 bra_21,bra_22,bra_23,bra_24,bra_25,bra_26,bra_27)
 
+# # find out why X and W do not have identical dim
+# check_X <- data.frame(table(X[, c("GID_2")]))
+# setdiff(check_X$Var1, W_str$GID_2)
+# setdiff(W_str$GID_2, check_X$Var1)
+# # remove "BRA.20.50_1" (implemented above)
+# 
+# # count occurences
+# check <- as.data.frame(table(check_X))
+
+
+# check <- sf_panel %>%
+#   dplyr::filter(year %in% t_vector) %>%
+#   dplyr::filter(substr(GID_2, 1, 3) %in% c_vector2) %>%
+#   st_set_geometry(NULL)
+
+
+
 # remove year and transform to numeric matrices
 Y <- as.numeric(Y$g)
-X <- X %>% dplyr::select(-GID_2, -year)
+X <- X %>% dplyr::select(-GID_1, -GID_2, -year)
 X <- matrix(as.numeric(unlist(X)),nrow=nrow(X))
 C <- matrix(as.numeric(unlist(C)),nrow=nrow(C))
+
+
+
 
 
