@@ -4,18 +4,17 @@ source("R/functions.R")
 # select years and countries for panel
 # t_vector <- c(2002:2016) # too big weights matrix -> cloud
 t_vector <- c(2012:2016)
-g_horizons <- c(2, 5)
+g_horizons <- c(2)
 c_vector1 <- c("Brazil")
 c_vector2 <- c("BRA")
 k_n <- c(5) 
 
 store <- list()
-model <- c(TRUE, FALSE) # interaction TRUE or FALSE, or both
+model <- c(FALSE) # interaction TRUE or FALSE, or both
 
-
-interact <- FALSE
-g_horizon <- 2
-k_nn <- 5
+# interact <- FALSE
+# g_horizon <- 2
+# k_nn <- 5
 
 for(interact in model){
   
@@ -31,16 +30,9 @@ for(interact in model){
       
       drop_horizon <- c((max(t_vector)-g_horizon+1) : max(t_vector))
       
-      if(interact == TRUE){
-        source("brasil/R/regression_data_interaction_BRA.R") # comment to switch to alternative model
-        #source("regression_data_interaction_manu.R") # uncomment to switch to alternative model
-      } else {
-        source("brasil/R/regression_data_BRA.R") # comment to switch to alternative model
-        #source("regression_data_manu.R") # uncomment to switch to alternative model
-      }
+      source("brasil/R/regression_data_BRA.R")
       
       source("brasil/R/SDM_BRA.R")
-      
       
       # arrange results ---------------------------------------------------------
       
@@ -65,7 +57,33 @@ for(interact in model){
         )
         
         results_sigmas <- data.frame(
-          Variables = c("sigma_MEX", "sigma_PER", "sigma_CHL"),
+          Variables = c("sigma.BRA.1_1", 
+                        "sigma.BRA.2_1",
+                        "sigma.BRA.3_1",
+                        "sigma.BRA.4_1",
+                        "sigma.BRA.5_1", 
+                        "sigma.BRA.6_1",
+                        "sigma.BRA.7_1",
+                        "sigma.BRA.8_1", 
+                        "sigma.BRA.9_1", 
+                        "sigma.BRA.10_1", 
+                        "sigma.BRA.11_1", 
+                        "sigma.BRA.12_1",
+                        "sigma.BRA.13_1",
+                        "sigma.BRA.14_1", 
+                        "sigma.BRA.15_1", 
+                        "sigma.BRA.16_1", 
+                        "sigma.BRA.17_1",
+                        "sigma.BRA.18_1",
+                        "sigma.BRA.19_1",
+                        "sigma.BRA.20_1", 
+                        "sigma.BRA.21_1", 
+                        "sigma.BRA.22_1",
+                        "sigma.BRA.23_1",
+                        "sigma.BRA.24_1",
+                        "sigma.BRA.25_1",
+                        "sigma.BRA.26_1",
+                        "sigma.BRA.27_1"),
           Direct = sigma_post_mean,
           Direct_t = sigma_post_mean / sigma_post_sd,
           Indirect = NA,
@@ -85,7 +103,8 @@ for(interact in model){
       } else {
         
         # output as table, post_mean/post_sd ~ bayesian t-values
-        ifelse(interact == TRUE, Vars <- c(1, coefs[c(-1, -3)], "CHL", "MEX", "PER"), Vars <- c(1, coefs[-1]))
+        ifelse(interact == TRUE, Vars <- c(1, coefs[c(-1, -3)], results_sigmas$Variables), 
+               Vars <- c(1, coefs[-1]))
         results_temp <- data.frame(
           Variables = Vars,
           Direct = direct_post_mean,
@@ -103,7 +122,7 @@ for(interact in model){
         )
         
         results_sigmas_temp <- data.frame(
-          Variables = c("sigma_MEX", "sigma_PER", "sigma_CHL"),
+          Variables = results_sigmas$Variables,
           Direct = sigma_post_mean,
           Direct_t = sigma_post_mean / sigma_post_sd,
           Indirect = NA,
@@ -152,39 +171,15 @@ for(interact in model){
   
 } # end loop m (model with or without interaction)
 
-# latex output mean and t values ------------------------------------------
+save(store, file = paste0("brasil/output/store_BRA_", Sys.Date(), ".RData"))
 
 results <- results[-1,]
 
-if(TRUE %in% model & FALSE %in% model){
-  
-  results$Variables <- c("Initial income", "Population density",
-                         "GVA agriculture, foresty and fishing", "GVA financial and insurance", "Large port",
-                         "Chile", "Mexico", "Peru",
-                         as.character(results_rho$Variables), 
-                         as.character(results_sigmas$Variables), 
-                         as.character(results_R2$Variables), "Ore extraction")
-  
-} else {
-  
-  if(interact == TRUE){
-    results$Variables <- c("Initial income", "Population density",
-                           "GVA agriculture, foresty and fishing", "GVA financial and insurance", "Large port",
-                           "Chile", "Mexico", "Peru",
-                           as.character(results_rho$Variables), 
-                           as.character(results_sigmas$Variables), 
-                           as.character(results_R2$Variables))
-  } else {
-    results$Variables <- c("Initial income", "Ore extraction", "Population density",
-                           "GVA agriculture, foresty and fishing", "GVA financial and insurance", "Large port",
-                           as.character(results_rho$Variables), 
-                           as.character(results_sigmas$Variables), 
-                           as.character(results_R2$Variables))
-  }
-  
-}
-
-
+results$Variables <- c("Initial income", "Ore extraction", "Population density",
+                       "GVA agriculture, foresty and fishing", "GVA financial and insurance", "Large port",
+                       as.character(results_rho$Variables), 
+                       as.character(results_sigmas$Variables), 
+                       as.character(results_R2$Variables))
 
 
 
@@ -192,70 +187,50 @@ if(TRUE %in% model & FALSE %in% model){
 # latex results -----------------------------------------------------------
 # i.e. direct, indirect and total combined
 
-# combine
-if(TRUE %in% model & FALSE %in% model){
-  full_table <- results %>%
-    dplyr::arrange(factor(Variables, 
-                          levels = c("Initial income", "Ore extraction", "Chile", "Mexico", "Peru",
-                                     "Population density", "GVA agriculture, foresty and fishing",
-                                     "GVA financial and insurance", "Large port", 
-                                     "Rho", "sigma_CHL", "sigma_MEX", "sigma_PER", "R2", "R2bar", "BIC", "AIC", "Obs.")))
-  if(ncol(full_table == 17)){
-    full_table <- full_table %>% dplyr::select("Variables", 
-                                               "PM (direct) 2(5).y", "t value  2(5).y", "PM (indirect) 2(5).y", "t value 2(5).y",
-                                               "PM (direct) 2(5).x", "t value  2(5).x", "PM (indirect) 2(5).x", "t value 2(5).x",
-                                               "PM (direct) 5(5).y", "t value  5(5).y", "PM (indirect) 5(5).y", "t value 5(5).y",
-                                               "PM (direct) 5(5).x", "t value  5(5).x", "PM (indirect) 5(5).x", "t value 5(5).x")
-  }
-  print(xtable::xtable(full_table, 
-                       digits = c(0, 0, rep(c(3, 3, 3, 3), length(g_horizons)*length(model))), align = paste0("ll", paste0(rep("|rr|rr", length(g_horizons)*length(model)), collapse = "")),
-                       caption = paste("Panel SDM impact estimates",
-                                       paste0(min(t_vector), "-", max(t_vector)-g_horizon), 
-                                       paste0(paste(g_horizons, collapse = " and "), " y avg. annual growth rates"),
-                                       "time FE",
-                                       "country FE", sep = ", ")), 
-        include.rownames=FALSE, size = "small")
-} else {
-  
-  # interaction
-  if(TRUE %in% model){
-    print(xtable::xtable(results, 
-                         digits = c(0, 0, rep(c(3, 3, 3, 3), length(g_horizons))), align = paste0("ll", paste0(rep("|rr|rr", length(g_horizons)), collapse = "")),
-                         caption = paste("Panel SDM impact estimates",
-                                         paste0(min(t_vector), "-", max(t_vector)-g_horizon), 
-                                         paste0(paste(g_horizons, collapse = " and "), " y avg. annual growth rates"),
-                                         "time FE",
-                                         "country FE", sep = ", ")), 
+print(xtable::xtable(results, 
+                      digits = c(0, 0, rep(c(3, 3, 3, 3), length(g_horizons))), align = paste0("ll", paste0(rep("|rr|rr", length(g_horizons)), collapse = "")),
+                      caption = paste("Panel SDM impact estimates",
+                                     paste0(min(t_vector), "-", max(t_vector)-g_horizon), 
+                                     paste0(paste(g_horizons, collapse = " and "), " y avg. annual growth rates"),
+                                     "time FE",
+                                     "country FE", sep = ", ")), 
           include.rownames=FALSE, size = "small")
-  }
-  
-  # no interaction
-  if(FALSE %in% model){
-    print(xtable::xtable(results, 
-                         digits = c(0, 0, rep(c(3, 3, 3, 3), length(g_horizons))), align = paste0("ll", paste0(rep("|rr|rr", length(g_horizons)), collapse = "")),
-                         caption = paste("Panel SDM impact estimates",
-                                         paste0(min(t_vector), "-", max(t_vector)-g_horizon), 
-                                         paste0(paste(g_horizons, collapse = " and "), " y avg. annual growth rates"),
-                                         "time FE",
-                                         "country FE", sep = ", ")), 
-          include.rownames=FALSE, size = "small")
-  }
-  
-}
-
-
-save(store, file = paste0("output/store_", Sys.Date(), ".RData"))
 
 
 
-# # for variations in W
-# print(xtable::xtable(results, 
-#                      digits = c(0, 0, rep(c(3, 3, 3, 3), length(k_n))), align = paste0("ll", paste0(rep("|rr|rr", length(k_n)), collapse = "")),
-#                      caption = paste("Panel SDM impact estimates",
-#                                      paste0(min(t_vector), "-", max(t_vector)-g_horizon), 
-#                                      paste0(paste(g_horizons, collapse = " and "), " y avg. annual growth rates"),
-#                                      "time FE",
-#                                      "country FE", sep = ", ")), 
-#       include.rownames=FALSE, size = "small")
+# confidence intervalls (full impact result data to be stored in loop!)
+direct_post_05 = apply( post.direct , 1 , quantile , probs = 0.05)[-1]
+direct_post_50 = apply( post.direct , 1 , quantile , probs = 0.5)[-1]
+indirect_post_05 = apply( post.indirect , 1 , quantile , probs = 0.05)[-1]
+indirect_post_50 = apply( post.indirect , 1 , quantile , probs = 0.5)[-1]
+direct_post_95 = apply( post.direct , 1 , quantile , probs = 0.95)[-1]
+indirect_post_95 = apply( post.indirect , 1 , quantile , probs = 0.95)[-1]
+rho_post_05 = quantile(postr, 0.05)
+rho_post_50 = quantile(postr, 0.5)
+rho_post_95 = quantile(postr, 0.95)
+rsq_post_05 = quantile(postrsq, 0.05)
+rsq_post_50 = quantile(postrsq, 0.5)
+rsq_post_95 = quantile(postrsq, 0.95)
+rsqbar_post_05 = quantile(postrsqbar, 0.05)
+rsqbar_post_50 = quantile(postrsqbar, 0.5)
+rsqbar_post_95 = quantile(postrsqbar, 0.95)
 
+results2 <- results[c(1:7, 35:37),]
+results2 <- results2 %>% 
+  dplyr::mutate(direct5perc = c(direct_post_05, rho_post_05, rsq_post_05, rsqbar_post_05, NA)) %>%
+  dplyr::mutate(direct50perc = c(direct_post_50, rho_post_50, rsq_post_50, rsqbar_post_50, NA)) %>%
+  dplyr::mutate(direct95perc = c(direct_post_95, rho_post_95, rsq_post_95, rsqbar_post_95, NA)) %>%
+  dplyr::mutate(indirect5perc = c(indirect_post_05, rep(NA, 4))) %>%
+  dplyr::mutate(indirect50perc = c(indirect_post_50, rep(NA, 4))) %>%
+  dplyr::mutate(indirect95perc = c(indirect_post_95, rep(NA, 4))) %>%
+  dplyr::select(Variables, direct5perc, direct50perc, direct95perc,  indirect5perc, indirect50perc, indirect95perc )
+
+print(xtable::xtable(results2, 
+                     digits = c(0, 0, rep(c(3, 3, 3, 3, 3, 3), length(g_horizons))), align = paste0("ll", paste0(rep("|rrr|rrr", length(g_horizons)), collapse = "")),
+                     caption = paste("Panel SDM impact estimates",
+                                     paste0(min(t_vector), "-", max(t_vector)-g_horizon), 
+                                     paste0(paste(g_horizons, collapse = " and "), " y avg. annual growth rates"),
+                                     "time FE",
+                                     "country FE", sep = ", ")), 
+      include.rownames=FALSE, size = "tiny")
 
