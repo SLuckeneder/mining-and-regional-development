@@ -40,7 +40,7 @@ nretain = 1000
 ndiscard = niter - nretain
 # save the posterior draws here
 postb = matrix(0,k,nretain)
-posts = matrix(0,3,nretain)
+posts = matrix(0,27,nretain)
 postr = matrix(0,1,nretain)
 postrsq = matrix(0,1,nretain)
 postrsqbar = matrix(0,1,nretain)
@@ -52,7 +52,8 @@ post.indirect = matrix(0,smallk + 1,nretain)
 post.total = matrix(0,smallk + 1,nretain)
 
 # set-up for griddy gibbs
-griddy_n = 500
+# griddy_n = 500
+griddy_n = 100
 logdets = lndetPaceBarry(as.matrix(W),length.out = griddy_n+2)
 logdets = logdets[-c(1,griddy_n + 2),]
 rrhos = logdets[,2]
@@ -64,7 +65,8 @@ aiW_diags = rep(0,griddy_n)
 aiW_tots = rep(0,griddy_n)
 cat("Pre-calculate griddy GIBBS...")
 for (ii in 1:griddy_n) {
-  A = (.sparseDiagonal(n) - rrhos[ii] * W)
+  cat("\n", ii)
+  A = (Matrix::.sparseDiagonal(n) - rrhos[ii] * W)
   AYs[,ii] = as.matrix(A %*% Y)
   AI = solve(A)
   ai_diags[ii] = sum(diag(AI))
@@ -73,6 +75,11 @@ for (ii in 1:griddy_n) {
   aiW_tots[ii] = sum(AI %*% W)
 }
 cat("Done!\n")
+save(AYs, file = paste0("brasil/output/store_AYs_", Sys.Date(), ".RData"))
+save(ai_diags, file = paste0("brasil/output/store_ai_diags_", Sys.Date(), ".RData"))
+save(ai_tots, file = paste0("brasil/output/store_ai_tots_", Sys.Date(), ".RData"))
+save(aiW_diags, file = paste0("brasil/output/store_aiW_diags_", Sys.Date(), ".RData"))
+save(aiW_tots, file = paste0("brasil/output/store_aiW_tots_", Sys.Date(), ".RData"))
 
 # starting values (won't matter after sufficient draws)
 curr.beta = MASS::mvrnorm(1,beta_prior_mean,beta_prior_var)
@@ -86,22 +93,17 @@ WY = W %*% Y
 curr.Ay = Y - curr.rho*WY
 
 # get respective rows for subsetting residuals
-nregs <- length(W_str$GID_0)
+nregs <- length(W_str$GID_2)
 nyrs <- n / nregs
 str_panel <- do.call("rbind", replicate(nyrs, W_str, simplify = FALSE))
-e.mex <- str_panel %>%
-  dplyr::mutate(id = as.numeric(rownames(str_panel))) %>%
-  dplyr::filter(GID_0 == "MEX") %>%
-  dplyr::select(id) %>% unlist()
-e.per <- str_panel %>%
-  dplyr::mutate(id = as.numeric(rownames(str_panel))) %>%
-  dplyr::filter(GID_0 == "PER") %>%
-  dplyr::select(id) %>% unlist()
-e.chl <- str_panel %>%
-  dplyr::mutate(id = as.numeric(rownames(str_panel))) %>%
-  dplyr::filter(GID_0 == "CHL") %>%
-  dplyr::select(id) %>% unlist()
 
+for(GID in unique(str_panel$GID_1)){
+  e. <- str_panel %>%
+    dplyr::mutate(id = as.numeric(rownames(str_panel))) %>%
+    dplyr::filter(GID_1 == GID) %>%
+    dplyr::select(id) %>% unlist()
+  assign(paste0("e.", GID), e.)
+}
 
 ### Gibbs sampling
 for (iter in 1:niter) {
@@ -109,17 +111,92 @@ for (iter in 1:niter) {
   
   curr.xb = X %*% curr.beta
   
-  # calculate resisuals and country-specific sigma
+  # calculate resisuals and state-specific sigma
   e <- curr.Ay - curr.xb
-  curr.ee.mex <- crossprod(e[e.mex])
-  curr.sigma.mex <- 1/rgamma(1, sigma_a + length(e.mex)/2, sigma_b + as.double(curr.ee.mex) / 2)
-  curr.ee.per <- crossprod(e[e.per])
-  curr.sigma.per <- 1/rgamma(1, sigma_a + length(e.per)/2, sigma_b + as.double(curr.ee.per) / 2)
-  curr.ee.chl <- crossprod(e[e.chl])
-  curr.sigma.chl <- 1/rgamma(1, sigma_a + length(e.chl)/2, sigma_b + as.double(curr.ee.chl) / 2)
+  
+  curr.ee.BRA.1_1 <- crossprod(e[e.BRA.1_1])
+  curr.sigma.BRA.1_1 <- 1/rgamma(1, sigma_a + length(e.BRA.1_1)/2, sigma_b + as.double(curr.ee.BRA.1_1) / 2)
+  curr.ee.BRA.2_1 <- crossprod(e[e.BRA.2_1])
+  curr.sigma.BRA.2_1 <- 1/rgamma(1, sigma_a + length(e.BRA.2_1)/2, sigma_b + as.double(curr.ee.BRA.2_1) / 2)
+  curr.ee.BRA.3_1 <- crossprod(e[e.BRA.3_1])
+  curr.sigma.BRA.3_1 <- 1/rgamma(1, sigma_a + length(e.BRA.3_1)/2, sigma_b + as.double(curr.ee.BRA.3_1) / 2)
+  curr.ee.BRA.4_1 <- crossprod(e[e.BRA.4_1])
+  curr.sigma.BRA.4_1 <- 1/rgamma(1, sigma_a + length(e.BRA.4_1)/2, sigma_b + as.double(curr.ee.BRA.4_1) / 2)
+  curr.ee.BRA.5_1 <- crossprod(e[e.BRA.5_1])
+  curr.sigma.BRA.5_1 <- 1/rgamma(1, sigma_a + length(e.BRA.5_1)/2, sigma_b + as.double(curr.ee.BRA.5_1) / 2)
+  curr.ee.BRA.6_1 <- crossprod(e[e.BRA.6_1])
+  curr.sigma.BRA.6_1 <- 1/rgamma(1, sigma_a + length(e.BRA.6_1)/2, sigma_b + as.double(curr.ee.BRA.6_1) / 2)
+  curr.ee.BRA.7_1 <- crossprod(e[e.BRA.7_1])
+  curr.sigma.BRA.7_1 <- 1/rgamma(1, sigma_a + length(e.BRA.7_1)/2, sigma_b + as.double(curr.ee.BRA.7_1) / 2)
+  curr.ee.BRA.8_1 <- crossprod(e[e.BRA.8_1])
+  curr.sigma.BRA.8_1 <- 1/rgamma(1, sigma_a + length(e.BRA.8_1)/2, sigma_b + as.double(curr.ee.BRA.8_1) / 2)
+  curr.ee.BRA.9_1 <- crossprod(e[e.BRA.9_1])
+  curr.sigma.BRA.9_1 <- 1/rgamma(1, sigma_a + length(e.BRA.9_1)/2, sigma_b + as.double(curr.ee.BRA.9_1) / 2)
+  curr.ee.BRA.10_1 <- crossprod(e[e.BRA.10_1])
+  curr.sigma.BRA.10_1 <- 1/rgamma(1, sigma_a + length(e.BRA.10_1)/2, sigma_b + as.double(curr.ee.BRA.10_1) / 2)
+  curr.ee.BRA.11_1 <- crossprod(e[e.BRA.11_1])
+  curr.sigma.BRA.11_1 <- 1/rgamma(1, sigma_a + length(e.BRA.11_1)/2, sigma_b + as.double(curr.ee.BRA.11_1) / 2)
+  curr.ee.BRA.12_1 <- crossprod(e[e.BRA.12_1])
+  curr.sigma.BRA.12_1 <- 1/rgamma(1, sigma_a + length(e.BRA.12_1)/2, sigma_b + as.double(curr.ee.BRA.12_1) / 2)
+  curr.ee.BRA.13_1 <- crossprod(e[e.BRA.13_1])
+  curr.sigma.BRA.13_1 <- 1/rgamma(1, sigma_a + length(e.BRA.13_1)/2, sigma_b + as.double(curr.ee.BRA.13_1) / 2)
+  curr.ee.BRA.14_1 <- crossprod(e[e.BRA.14_1])
+  curr.sigma.BRA.14_1 <- 1/rgamma(1, sigma_a + length(e.BRA.14_1)/2, sigma_b + as.double(curr.ee.BRA.14_1) / 2)
+  curr.ee.BRA.15_1 <- crossprod(e[e.BRA.15_1])
+  curr.sigma.BRA.15_1 <- 1/rgamma(1, sigma_a + length(e.BRA.15_1)/2, sigma_b + as.double(curr.ee.BRA.15_1) / 2)
+  curr.ee.BRA.16_1 <- crossprod(e[e.BRA.16_1])
+  curr.sigma.BRA.16_1 <- 1/rgamma(1, sigma_a + length(e.BRA.16_1)/2, sigma_b + as.double(curr.ee.BRA.16_1) / 2)
+  curr.ee.BRA.17_1 <- crossprod(e[e.BRA.17_1])
+  curr.sigma.BRA.17_1 <- 1/rgamma(1, sigma_a + length(e.BRA.17_1)/2, sigma_b + as.double(curr.ee.BRA.17_1) / 2)
+  curr.ee.BRA.18_1 <- crossprod(e[e.BRA.18_1])
+  curr.sigma.BRA.18_1 <- 1/rgamma(1, sigma_a + length(e.BRA.18_1)/2, sigma_b + as.double(curr.ee.BRA.18_1) / 2)
+  curr.ee.BRA.19_1 <- crossprod(e[e.BRA.19_1])
+  curr.sigma.BRA.19_1 <- 1/rgamma(1, sigma_a + length(e.BRA.19_1)/2, sigma_b + as.double(curr.ee.BRA.19_1) / 2)
+  curr.ee.BRA.20_1 <- crossprod(e[e.BRA.20_1])
+  curr.sigma.BRA.20_1 <- 1/rgamma(1, sigma_a + length(e.BRA.20_1)/2, sigma_b + as.double(curr.ee.BRA.20_1) / 2)
+  curr.ee.BRA.21_1 <- crossprod(e[e.BRA.21_1])
+  curr.sigma.BRA.21_1 <- 1/rgamma(1, sigma_a + length(e.BRA.21_1)/2, sigma_b + as.double(curr.ee.BRA.21_1) / 2)
+  curr.ee.BRA.22_1 <- crossprod(e[e.BRA.22_1])
+  curr.sigma.BRA.22_1 <- 1/rgamma(1, sigma_a + length(e.BRA.22_1)/2, sigma_b + as.double(curr.ee.BRA.22_1) / 2)
+  curr.ee.BRA.23_1 <- crossprod(e[e.BRA.23_1])
+  curr.sigma.BRA.23_1 <- 1/rgamma(1, sigma_a + length(e.BRA.23_1)/2, sigma_b + as.double(curr.ee.BRA.23_1) / 2)
+  curr.ee.BRA.24_1 <- crossprod(e[e.BRA.24_1])
+  curr.sigma.BRA.24_1 <- 1/rgamma(1, sigma_a + length(e.BRA.24_1)/2, sigma_b + as.double(curr.ee.BRA.24_1) / 2)
+  curr.ee.BRA.25_1 <- crossprod(e[e.BRA.25_1])
+  curr.sigma.BRA.25_1 <- 1/rgamma(1, sigma_a + length(e.BRA.25_1)/2, sigma_b + as.double(curr.ee.BRA.25_1) / 2)
+  curr.ee.BRA.26_1 <- crossprod(e[e.BRA.26_1])
+  curr.sigma.BRA.26_1 <- 1/rgamma(1, sigma_a + length(e.BRA.26_1)/2, sigma_b + as.double(curr.ee.BRA.26_1) / 2)
+  curr.ee.BRA.27_1 <- crossprod(e[e.BRA.27_1])
+  curr.sigma.BRA.27_1 <- 1/rgamma(1, sigma_a + length(e.BRA.27_1)/2, sigma_b + as.double(curr.ee.BRA.27_1) / 2)
   
   # merge sigmas into vector
-  sigma_i <- rep(c(rep(curr.sigma.mex, length(e.mex)/t), rep(curr.sigma.per, length(e.per)/t), rep(curr.sigma.chl, length(e.chl)/t)), t)
+  sigma_i <- rep(c(rep(curr.sigma.BRA.1_1, length(e.BRA.1_1)/t), 
+                   rep(curr.sigma.BRA.2_1, length(e.BRA.2_1)/t),
+                   rep(curr.sigma.BRA.3_1, length(e.BRA.3_1)/t),
+                   rep(curr.sigma.BRA.4_1, length(e.BRA.4_1)/t),
+                   rep(curr.sigma.BRA.5_1, length(e.BRA.5_1)/t),
+                   rep(curr.sigma.BRA.6_1, length(e.BRA.6_1)/t),
+                   rep(curr.sigma.BRA.7_1, length(e.BRA.7_1)/t),
+                   rep(curr.sigma.BRA.8_1, length(e.BRA.8_1)/t),
+                   rep(curr.sigma.BRA.9_1, length(e.BRA.9_1)/t),
+                   rep(curr.sigma.BRA.10_1, length(e.BRA.10_1)/t),
+                   rep(curr.sigma.BRA.11_1, length(e.BRA.11_1)/t),
+                   rep(curr.sigma.BRA.12_1, length(e.BRA.12_1)/t),
+                   rep(curr.sigma.BRA.13_1, length(e.BRA.13_1)/t),
+                   rep(curr.sigma.BRA.14_1, length(e.BRA.14_1)/t),
+                   rep(curr.sigma.BRA.15_1, length(e.BRA.15_1)/t),
+                   rep(curr.sigma.BRA.16_1, length(e.BRA.16_1)/t),
+                   rep(curr.sigma.BRA.17_1, length(e.BRA.17_1)/t),
+                   rep(curr.sigma.BRA.18_1, length(e.BRA.18_1)/t),
+                   rep(curr.sigma.BRA.19_1, length(e.BRA.19_1)/t),
+                   rep(curr.sigma.BRA.20_1, length(e.BRA.20_1)/t),
+                   rep(curr.sigma.BRA.21_1, length(e.BRA.21_1)/t),
+                   rep(curr.sigma.BRA.22_1, length(e.BRA.22_1)/t),
+                   rep(curr.sigma.BRA.23_1, length(e.BRA.23_1)/t),
+                   rep(curr.sigma.BRA.24_1, length(e.BRA.24_1)/t),
+                   rep(curr.sigma.BRA.25_1, length(e.BRA.25_1)/t),
+                   rep(curr.sigma.BRA.26_1, length(e.BRA.26_1)/t),
+                   rep(curr.sigma.BRA.27_1, length(e.BRA.27_1)/t)), t)
   
   # draw beta incl correction for sigmas
   Xtemp <- X/sqrt(sigma_i)
@@ -168,7 +245,33 @@ for (iter in 1:niter) {
   if (iter > ndiscard) {
     s = iter - ndiscard
     postb[,s] = as.matrix(curr.beta)
-    posts[,s] <- c(curr.sigma.mex,curr.sigma.per,curr.sigma.chl)
+    posts[,s] <- c(curr.sigma.BRA.1_1, 
+                       curr.sigma.BRA.2_1,
+                       curr.sigma.BRA.3_1,
+                       curr.sigma.BRA.4_1,
+                       curr.sigma.BRA.5_1, 
+                       curr.sigma.BRA.6_1,
+                       curr.sigma.BRA.7_1,
+                       curr.sigma.BRA.8_1, 
+                       curr.sigma.BRA.9_1, 
+                       curr.sigma.BRA.10_1, 
+                       curr.sigma.BRA.11_1, 
+                       curr.sigma.BRA.12_1,
+                       curr.sigma.BRA.13_1,
+                       curr.sigma.BRA.14_1, 
+                       curr.sigma.BRA.15_1, 
+                       curr.sigma.BRA.16_1, 
+                       curr.sigma.BRA.17_1,
+                       curr.sigma.BRA.18_1,
+                       curr.sigma.BRA.19_1,
+                       curr.sigma.BRA.20_1, 
+                       curr.sigma.BRA.21_1, 
+                       curr.sigma.BRA.22_1,
+                       curr.sigma.BRA.23_1,
+                       curr.sigma.BRA.24_1,
+                       curr.sigma.BRA.25_1,
+                       curr.sigma.BRA.26_1,
+                       curr.sigma.BRA.27_1)
     postr[s] = curr.rho
     
     # calculate summary spatial effects
