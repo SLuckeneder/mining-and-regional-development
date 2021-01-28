@@ -44,14 +44,19 @@ input/full_panel.RData
 input/panel.RData
 input/oecd
 input_open/
-
+brasil/input/spatial_weights.gpkg
 brasil/input/SEL_brasil.RData
 brasil/input/anm
+brasil/input/mine_data.RData
+brasil/input/panel_old.RData
+brasil/input/airports
 brasil/input/mdic
 brasil/input/ibge
+brasil/input/ports
 brasil/input/panel.RData
 brasil/input/full_panel.RData
 brasil/input_open/
+brasil/input/missing_polygons.RData
 
 # output
 output/
