@@ -6,27 +6,55 @@ library(fineprintutils)
 library(stringr)
 library(zoo)
 library(imputeTS)
+library(data.table)
 
 
 # spatial polygon data frames ---------------------------------------------
 
-# Source: https://gadm.org/ 
-# issue: MANAUS is missing!
+# # Source: https://gadm.org/ 
+# # issue: MANAUS is missing!
+# 
+# path <- "brasil/input/gadm"
+# 
+# countries <- c("BRA")
+# # filename <- paste0("gadm36_", countries, "_1_sf.rds")
+# filename <- paste0("gadm36_", countries, "_2_sf.rds")
+# # filename <- paste0("gadm36_", countries, "_3_sf.rds")
+# 
+# sf_BRA <- readRDS(file.path(path, filename))
+# 
+# # save spdf for panel extension
+# sf_panel <- sf_BRA
+# 
+# # plot(sf_BRA %>% dplyr::select(GID_1))
 
-path <- "brasil/input/gadm"
 
-countries <- c("BRA")
-# filename <- paste0("gadm36_", countries, "_1_sf.rds")
-filename <- paste0("gadm36_", countries, "_2_sf.rds")
-# filename <- paste0("gadm36_", countries, "_3_sf.rds")
 
-sf_BRA <- readRDS(file.path(path, filename))
-
+path <- "brasil/input/ibge"
+filename <- "BRMUE250GC_SIR.shp"
+sf_BRA <- sf::st_read(file.path(path, filename))
 # save spdf for panel extension
 sf_panel <- sf_BRA
 
-# plot(sf_BRA %>% dplyr::select(GID_1))
+path <- "brasil/input/ports"
+filename <- "Portos.shp"
+sf_ports <- sf::st_read(file.path(path, filename))
+sf_ports <- sf_ports %>% dplyr::transmute(port = 1)
 
+path <- "brasil/input/airports"
+filename <- "Aerodromos.shp"
+sf_airports <- sf::st_read(file.path(path, filename))
+sf_airports <- sf_airports %>% dplyr::transmute(airport = 1)
+
+# join ports and airports
+sf_panel <- sf_panel %>% 
+  sf::st_join(sf_ports, join = st_intersects) %>% 
+  sf::st_join(sf_airports, join = st_intersects) %>%
+  dplyr::group_by(NM_MUNICIP, CD_GEOCMU) %>%
+  dplyr::mutate(port = ifelse(is.na(port), 0, 1), airport = ifelse(is.na(airport), 0, 1)) %>%
+  dplyr::summarise(port = min(port, na.rm = TRUE), airport = min(airport, na.rm = TRUE))
+
+sf::st_write(sf_panel, "brasil/input/spatial_weights.gpkg", delete_dsn = TRUE) # save spatial polygons for weights matrix
 
 # ore extraction data -----------------------------------------------------
 
@@ -333,11 +361,13 @@ snl_data <- snl_data %>%
 # to sf and join with polygons
 snl_data_sf <- snl_data %>% 
   sf::st_as_sf(coords = c("X","Y"), crs = "+proj=longlat +datum=WGS84 +no_defs") %>%
-  sf::st_join(sf_BRA, join = st_intersects) 
+  sf::st_transform(crs = "+proj=longlat +ellps=GRS80 +no_defs") %>% 
+  sf::st_join(sf_BRA, join = st_intersects) %>%
+  sf::st_transform(crs = "+proj=longlat +datum=WGS84 +no_defs")
 
 # aggregate point data into TL3 polygons
 snl_data_sf_agg <- snl_data_sf %>%
-  dplyr::group_by(GID_2, year) %>%
+  dplyr::group_by(CD_GEOCMU, year) %>%
   dplyr::summarise(ore_extraction = sum(value, na.rm = TRUE)) %>%
   as.data.frame() %>%
   dplyr::select(-geometry)
@@ -351,9 +381,9 @@ snl_data_sf_agg_2016 <- snl_data_sf_agg %>% dplyr::filter(year == 2016)
 snl_data_sf_agg_2017 <- snl_data_sf_agg %>% dplyr::filter(year == 2017)
 
 # merge aggregates of selected year into sf (cross-section)
-sf_BRA_2010 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2010, by = "GID_2")
-sf_BRA_2016 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2016, by = "GID_2")
-sf_BRA_2017 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2017, by = "GID_2")
+sf_BRA_2010 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2010, by = "CD_GEOCMU")
+sf_BRA_2016 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2016, by = "CD_GEOCMU")
+sf_BRA_2017 <- sf_BRA %>% dplyr::left_join(snl_data_sf_agg_2017, by = "CD_GEOCMU")
 
 # # subset to overcome memory problems when plotting
 # sf_ore_2010 <- sf_BRA_2010
@@ -504,24 +534,25 @@ ggplot2::ggsave("brasil/output/maps/brasil_ore_incl_zoom_2016_mod.png", plot = p
                 scale = 1, width = 400, height = 300, units = "mm")
 
 
-
 ### extend to shp to panel and merge extraction data
 
+
+sf_panel <- sf_panel %>% sf::st_as_sf()
+
+
 # stack spdf data t (= 19 years) times
-sf_panel <- do.call("rbind", replicate(19, sf_panel, simplify = FALSE))
-sf_panel <- sf_panel %>% dplyr::mutate(year = rep(as.character(2000:2018), each=5504))
+sf_panel <- data.table::rbindlist(replicate(19, sf_panel, simplify = FALSE))
+sf_panel <- sf_panel %>% dplyr::mutate(year = rep(as.character(2000:2018), each=nrow(sf_panel)/19))
 
 # merge aggregates of selected year into sf
-sf_panel <- sf_panel %>% dplyr::left_join(snl_data_sf_agg_panel, by = c("GID_2", "year"))
-
-
+sf_panel <- sf_panel %>% dplyr::left_join(snl_data_sf_agg_panel, by = c("CD_GEOCMU", "year"))
 
 
 # ports -------------------------------------------------------------------
 
-# Source: https://www.searoutes.com/country-ports/Brazil
-
-ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
+# # Source: https://www.searoutes.com/country-ports/Brazil
+# 
+# ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
 
 
 # IBGE demographics -------------------------------------------------------
@@ -529,7 +560,7 @@ ports <- read.csv("brasil/input/ports.csv", sep = ";") # MANAUS MISSING!!
 ibge_pop <- read.csv("brasil/input/ibge/pop_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, 
                      check.names = F, fileEncoding="latin1") 
 ibge_pop <- ibge_pop %>%
-  `colnames<-`(c("level", "id", "municipio", "year", "variable", "value", "empty")) %>%
+  `colnames<-`(c("level", "CD_GEOCMU", "municipio", "year", "variable", "value", "empty")) %>%
   dplyr::select(c(1:6)) %>%
   dplyr::filter(level == "MU") %>%
   dplyr::select(-level) %>%
@@ -542,13 +573,13 @@ ibge_pop <- ibge_pop %>%
 unique(ibge_pop$year)
 # there is no pop data for 2007 and 2010 -> take mean values of previous and following year
 
-df <- data.frame("id" = rep(unique(ibge_pop$id), each = 2),
+df <- data.frame("CD_GEOCMU" = rep(unique(ibge_pop$CD_GEOCMU), each = 2),
                  "year" = as.character(rep(c(2007, 2010)), each = 2)) 
 
 ibge_pop <- dplyr::bind_rows(ibge_pop, df) %>%
-  dplyr::arrange(id, year)
+  dplyr::arrange(CD_GEOCMU, year)
 
-x <- ibge_pop %>% dplyr::group_by(id) %>%
+x <- ibge_pop %>% dplyr::group_by(CD_GEOCMU) %>%
   dplyr::mutate(value = imputeTS::na_ma(value, k = 1)) %>%
   dplyr::ungroup() %>%
   dplyr::select(value)
@@ -557,7 +588,7 @@ x <- ibge_pop %>% dplyr::group_by(id) %>%
 y <- data.frame(ibge_pop$value, x)
 
 # apply to ibge_pop df
-ibge_pop <- ibge_pop %>% dplyr::group_by(id) %>%
+ibge_pop <- ibge_pop %>% dplyr::group_by(CD_GEOCMU) %>%
   dplyr::mutate(value = imputeTS::na_ma(value, k = 1)) %>%
   dplyr::ungroup() 
 
@@ -573,7 +604,7 @@ ibge_pop <- ibge_pop %>%
 ibge_gdp <- read.csv("brasil/input/ibge/gdp_mod.csv", sep = ";", skip = 1, stringsAsFactors = FALSE, 
                      check.names = F, fileEncoding="latin1") 
 ibge_gdp <- ibge_gdp %>%
-  `colnames<-`(c("level", "id", "municipio", "year", "variable", "value")) %>%
+  `colnames<-`(c("level", "CD_GEOCMU", "municipio", "year", "variable", "value")) %>%
   dplyr::filter(level == "MU") %>%
   dplyr::select(-level) %>%
   dplyr::mutate(state = stringr::str_sub(municipio,-4)) %>%
@@ -592,63 +623,101 @@ unique(ibge_gdp$year)
 ibge_data <- dplyr::bind_rows(ibge_pop, ibge_gdp)
 suppressWarnings(rm(ibge_pop, ibge_gdp))
 
-
-# load or create region concordance ---------------------------------------
-
-if("conc_mun_mod.csv" %in% dir("brasil/input")){
-  conc <- read.csv("brasil/input/conc_mun_mod.csv", sep = ";", stringsAsFactors = FALSE)
-} else{
-  conc_ibge <- read.csv("brasil/input/conc_mun.csv", sep = ";", stringsAsFactors = FALSE)
-  conc_gadm <- sf_BRA %>% dplyr::select(GID_2, NAME_2) %>% sf::st_set_geometry(NULL)
-  conc <- dplyr::left_join(conc_gadm, conc_ibge, by = c("NAME_2" = "NO_MUN_MIN"))
-  write.table(conc, file = paste0("brasil/input/conc_mun_mod.csv"), row.names=FALSE, sep = ";")
-  # now modify manually!
-}
-
-# check concordance
-dup <- conc[duplicated(conc$GID_2),]
-dup <- conc[is.na(conc$GID_2),]
-dup <- conc[duplicated(conc$CO_MUN_GEO),]
-dup <- conc[is.na(conc$CO_MUN_GEO),]
-rm(dup)
+# 
+# # load or create region concordance ---------------------------------------
+# 
+# if("conc_mun_mod.csv" %in% dir("brasil/input")){
+#   conc <- read.csv("brasil/input/conc_mun_mod.csv", sep = ";", stringsAsFactors = FALSE)
+# } else{
+#   conc_ibge <- read.csv("brasil/input/conc_mun.csv", sep = ";", stringsAsFactors = FALSE)
+#   conc_gadm <- sf_BRA %>% dplyr::select(GID_2, NAME_2) %>% sf::st_set_geometry(NULL)
+#   conc <- dplyr::left_join(conc_gadm, conc_ibge, by = c("NAME_2" = "NO_MUN_MIN"))
+#   write.table(conc, file = paste0("brasil/input/conc_mun_mod.csv"), row.names=FALSE, sep = ";")
+#   # now modify manually!
+# }
+# 
+# # check concordance
+# dup <- conc[duplicated(conc$GID_2),]
+# dup <- conc[is.na(conc$GID_2),]
+# dup <- conc[duplicated(conc$CO_MUN_GEO),]
+# dup <- conc[is.na(conc$CO_MUN_GEO),]
+# rm(dup)
 
 # merge to spatial data ---------------------------------------------------
 
-# apply concordance
-conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactors = FALSE)
-conc <- conc %>% 
-  dplyr::mutate(CO_MUN_GEO = as.character(CO_MUN_GEO))
-ibge_data <- ibge_data %>% dplyr::full_join(conc, by = c("id" = "CO_MUN_GEO"))
 
-# check for NAs
-check <- ibge_data %>% 
-  dplyr::filter(year == 2003) %>%
-  dplyr::filter(variable == "Produto Interno Bruto a pre\u0087os correntes (Mil Reais)") %>%
-  dplyr::filter(is.na(GID_2))
-# ca 100, okay
-rm(check)
+sf_panel <- sf_panel %>% dplyr::select(-geometry) %>%
+  dplyr::mutate(CD_GEOCMU = as.character(CD_GEOCMU), year = as.character(year)) %>%
+  dplyr::left_join(ibge_data %>% dplyr::mutate(CD_GEOCMU = as.character(CD_GEOCMU), year = as.character(year)), 
+                   by = c("CD_GEOCMU" = "CD_GEOCMU", "year" = "year"))
 
-# remove columns that are already in the ore data
-ibge_data <- ibge_data %>% 
-  dplyr::select(-NAME_2)
+# spread panel
+sf_panel <- as_tibble(sf_panel) %>% 
+  dplyr::select(-municipio) %>% 
+  dplyr::filter(!is.na(variable)) %>% 
+  data.table::dcast(NM_MUNICIP + CD_GEOCMU + year + ore_extraction + state + port + airport ~ variable, value.var = "value") %>% 
+  tibble::as_tibble()
 
-# merge into spdf_panel (takes time!!)
-if("panel.RData" %in% dir("input")){
-  load("brasil/input/panel.RData")
-} else{
-  sf_panel <- sf_panel %>%
-    dplyr::left_join(ibge_data , by = c("GID_2" = "GID_2", "year" = "year")) %>%
-    dplyr::select(GID_2, GID_1, year, ore_extraction, variable, value)
-  
-  sf_panel <- tidyr::spread(sf_panel, variable, value, drop = TRUE)
-  save(sf_panel, file = "brasil/input/panel.RData")
-}
-sf_panel <- sf_panel %>% dplyr::select(-`<NA>`)
-colnames(sf_panel) <- c("GID_2", "GID_1", "year", "ore_extraction", "tax", "pop", 
-                        "gdp_current_thousand_reais", "gva_public_service_current_thousand_reais",
-                        "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais",
-                        "gva_private_service_current_thousand_reais", "gva_current_thousand_reais",
-                        "geometry")
+sf_panel <- sf_panel %>% 
+  dplyr::select(
+    `NM_MUNICIP` = NM_MUNICIP,
+    `CD_GEOCMU` = CD_GEOCMU,
+    `year` = year,
+    `ore_extraction` = ore_extraction,
+    `state` = state,
+    `port` = port,
+    `airport` = airport,
+    tax = "Impostos, l¡quidos de subs¡dios, sobre produtos a pre\u0087os correntes (Mil Reais)",
+    pop = "População residente estimada (Pessoas)",
+    gdp_current_thousand_reais = "Produto Interno Bruto a pre\u0087os correntes (Mil Reais)",
+    gva_public_service_current_thousand_reais = "Valor adicionado bruto a pre\u0087os correntes da administra\u0087Æo, defesa, educa\u0087Æo e sa£de p£blicas e seguridade social (Mil Reais)",
+    gva_agriculture_current_thousand_reais = `Valor adicionado bruto a preos correntes da agropecu ria (Mil Reais)`,
+    gva_industry_current_thousand_reais = "Valor adicionado bruto a pre\u0087os correntes da ind£stria (Mil Reais)",
+    gva_private_service_current_thousand_reais = "Valor adicionado bruto a pre\u0087os correntes dos servi\u0087os, exclusive administra\u0087Æo, defesa, educa\u0087Æo e sa£de p£blicas e seguridade social (Mil Reais)",
+    gva_current_thousand_reais = "Valor adicionado bruto a pre\u0087os correntes total (Mil Reais)")
+
+# colnames(sf_panel) <- c("NM_MUNICIP", "CD_GEOCMU", "year", "ore_extraction", "state", "port", "airport", 
+#                         "tax", "pop", 
+#                         "gdp_current_thousand_reais", "gva_public_service_current_thousand_reais",
+#                         "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais",
+#                         "gva_private_service_current_thousand_reais", "gva_current_thousand_reais",
+#                         "geometry")
+
+# # apply concordance
+# conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactors = FALSE)
+# conc <- conc %>% 
+#   dplyr::mutate(CO_MUN_GEO = as.character(CO_MUN_GEO))
+# ibge_data <- ibge_data %>% dplyr::full_join(conc, by = c("id" = "CO_MUN_GEO"))
+# 
+# # check for NAs
+# check <- ibge_data %>% 
+#   dplyr::filter(year == 2003) %>%
+#   dplyr::filter(variable == "Produto Interno Bruto a pre\u0087os correntes (Mil Reais)") %>%
+#   dplyr::filter(is.na(GID_2))
+# # ca 100, okay
+# rm(check)
+# 
+# # remove columns that are already in the ore data
+# ibge_data <- ibge_data %>% 
+#   dplyr::select(-NAME_2)
+
+# # merge into spdf_panel (takes time!!)
+# if("panel.RData" %in% dir("input")){
+#   load("brasil/input/panel.RData")
+# } else{
+#   sf_panel <- sf_panel %>%
+#     dplyr::left_join(ibge_data , by = c("GID_2" = "GID_2", "year" = "year")) %>%
+#     dplyr::select(GID_2, GID_1, year, ore_extraction, variable, value)
+#   
+#   sf_panel <- tidyr::spread(sf_panel, variable, value, drop = TRUE)
+#   save(sf_panel, file = "brasil/input/panel.RData")
+# }
+# sf_panel <- sf_panel %>% dplyr::select(-`<NA>`)
+# colnames(sf_panel) <- c("GID_2", "GID_1", "year", "ore_extraction", "tax", "pop", 
+#                         "gdp_current_thousand_reais", "gva_public_service_current_thousand_reais",
+#                         "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais",
+#                         "gva_private_service_current_thousand_reais", "gva_current_thousand_reais",
+#                         "geometry")
 
 # map descriptives --------------------------------------------------------
 
@@ -736,8 +805,8 @@ ggplot2::ggsave("brasil/output/maps/brasil_gdp_cap_2016.png", plot = last_plot()
 
 # merge ports into data ---------------------------------------------------
 
-# panel
-sf_panel <- sf_panel %>% dplyr::left_join(ports %>% dplyr::select(GID_2, large_port), by = "GID_2")
+# # panel
+# sf_panel <- sf_panel %>% dplyr::left_join(ports %>% dplyr::select(GID_2, large_port), by = "GID_2")
 
 # some corrections --------------------------------------------------------
 
@@ -755,14 +824,14 @@ max(sub$year)
 
 save(sf_panel, file = "brasil/input/full_panel.RData")
 
-# for later: exlude all regions for which there is no IBGE data
-conc_ibge <- read.csv("brasil/input/conc_mun.csv", sep = ";", stringsAsFactors = FALSE)
-conc_gadm <- sf_BRA %>% dplyr::select(GID_2, NAME_2) %>% sf::st_set_geometry(NULL)
-conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactors = FALSE)
-
-# c(setdiff(conc$GID_2, conc_gadm$GID_2), setdiff(conc_gadm$GID_2, conc$GID_2))
-
-missing_polygons <- setdiff(conc_gadm$GID_2, conc$GID_2) #can be investigated a bit more at a later stage
-save(missing_polygons, file = "brasil/input/missing_polygons.RData")
+# # for later: exlude all regions for which there is no IBGE data
+# conc_ibge <- read.csv("brasil/input/conc_mun.csv", sep = ";", stringsAsFactors = FALSE)
+# conc_gadm <- sf_BRA %>% dplyr::select(GID_2, NAME_2) %>% sf::st_set_geometry(NULL)
+# conc <- read.csv("brasil/input/conc_mun_mod_new.csv", sep = ";", stringsAsFactors = FALSE)
+# 
+# # c(setdiff(conc$GID_2, conc_gadm$GID_2), setdiff(conc_gadm$GID_2, conc$GID_2))
+# 
+# missing_polygons <- setdiff(conc_gadm$GID_2, conc$GID_2) #can be investigated a bit more at a later stage
+# save(missing_polygons, file = "brasil/input/missing_polygons.RData")
 
 

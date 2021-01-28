@@ -1,136 +1,125 @@
 
 load("brasil/input/full_panel.RData")
-load("brasil/input/missing_polygons.RData")
 
 # neighbours --------------------------------------------------------------
 
 W_data <- sf_panel %>% 
+  dplyr::filter(gdp_current_thousand_reais > 0) %>% 
+  dplyr::filter(gva_agriculture_current_thousand_reais > 0) %>% 
+  dplyr::filter(gva_industry_current_thousand_reais > 0) %>% 
+  dplyr::group_by(CD_GEOCMU) %>% 
+  dplyr::mutate(n = n()) %>% 
+  dplyr::filter(n == 15) %>%
+  dplyr::ungroup() %>%
   dplyr::filter(year == t_vector[1]) %>%
-  dplyr::filter(gdp_current_thousand_reais > 0) %>%
-  dplyr::filter(!GID_2 %in% missing_polygons) # exluding all regions for which there is no IBGE data
+  dplyr::arrange(year, CD_GEOCMU)
   
-# neighbours (see https://cran.r-project.org/web/packages/spdep/vignettes/nb_sf.html)
+# read spatial again
+geometries_mu <- sf::st_read("brasil/input/spatial_weights.gpkg", stringsAsFactors = FALSE)
+geometries_mu <- geometries_mu %>% 
+  dplyr::filter(CD_GEOCMU %in% W_data$CD_GEOCMU) %>%
+  dplyr::arrange(CD_GEOCMU)
 
-coords_sf <- sf::st_coordinates(sf::st_centroid(W_data))
-W_k <- spdep::knearneigh(coords_sf, k = k_nn)
+# neighbours (see https://cran.r-project.org/web/packages/spdep/vignettes/nb_sf.html)
+coords_sf <- sf::st_coordinates(sf::st_centroid(geometries_mu, of_largest_polygon = TRUE))
+W_k <- spdep::knearneigh(coords_sf, k = k_nn) # takes 5-10 min
 knear_nb <- spdep::knn2nb(W_k)
 W_k <- spdep::nb2mat(knear_nb)
-
 # plot neighbours
 png("brasil/output/maps/knearest_map.png", width = 4000, height = 3000)
 #pdf("brasil/output/maps/knearest_map.pdf", width = 400, height = 300)
-plot(st_geometry(W_data), border="grey", lwd = 6)
+plot(st_geometry(geometries_mu), border="grey", lwd = 6)
 plot(knear_nb, coords = coords_sf, col = viridis(5)[2], lwd = 4, points=FALSE, add=TRUE)
 dev.off()
 
-
 # structure of W must fit Y and X
-W_str <- sf::st_centroid(W_data) %>% dplyr::filter(!GID_2 %in% missing_polygons) %>%
-  dplyr::filter(GID_2 != "BRA.20.50_1") %>%
+W_str <- sf::st_centroid(geometries_mu) %>%
   sf::st_set_geometry(NULL)
 
 # subset panel ------------------------------------------------------------
 
 data <- sf_panel %>% 
   dplyr::filter(year %in% t_vector) %>%
-  dplyr::filter(substr(GID_2, 1, 3) %in% c_vector2) %>%
-  dplyr::filter(gdp_current_thousand_reais > 0) %>%
-  dplyr::filter(!GID_2 %in% missing_polygons) %>% # exluding all regions for which there is no IBGE data
-  dplyr::filter(GID_2 != "BRA.20.50_1") # see bottom of this script
+  dplyr::filter(CD_GEOCMU %in% W_data$CD_GEOCMU) %>%
+  dplyr::arrange(year, CD_GEOCMU) 
+
+# # check
+# which(!W_str$CD_GEOCMU %in% data$CD_GEOCMU)
+# which(!data$CD_GEOCMU %in% W_str$CD_GEOCMU)
 
 # select variables
 X <- data %>%
-  `colnames<-`(gsub("-.*", "", colnames(data))) %>%
-  sf::st_set_geometry(NULL) %>% # drop geometry
-  dplyr::select("GID_2", "GID_1", "year", "gdp_current_thousand_reais", "ore_extraction", "pop", 
-                "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais", "large_port") %>%
+  dplyr::select("CD_GEOCMU", "state", "year", "gdp_current_thousand_reais", "ore_extraction", "pop", 
+                "gva_agriculture_current_thousand_reais", "gva_industry_current_thousand_reais", "port") %>%
   dplyr::mutate(gva_agriculture_current_thousand_reais = log(gva_agriculture_current_thousand_reais+1)) %>%
   dplyr::mutate(gva_industry_current_thousand_reais = log(gva_industry_current_thousand_reais+1)) %>%
   dplyr::mutate(pop = log(pop)) %>%
   dplyr::mutate(ore_extraction = log(ore_extraction+1)) %>%
   replace(is.na(.), 0) # WORKS ONLY AS LONG AS ONLY ORE EXTRACTION DATA IS MISSING
-
 # Dealing with NAs by setting = 0 is okay, since extraction is NA if there is none
 
 # calculate growth (in %)
 Y <- X %>%
-  dplyr::group_by(GID_2) %>%
-  dplyr::arrange(GID_2, year) %>%
+  dplyr::group_by(CD_GEOCMU) %>%
   dplyr::mutate(g = log(gdp_current_thousand_reais / lag(gdp_current_thousand_reais,g_horizon)) / g_horizon * 100) %>%
+  #dplyr::mutate(g = (gdp_current_thousand_reais - lag(gdp_current_thousand_reais,g_horizon)) /  lag(gdp_current_thousand_reais,g_horizon)  * 100) %>%
   dplyr::mutate(g = lead(g, g_horizon)) %>%
-  dplyr::select(GID_2, year, g) %>%
-  dplyr::filter(! year %in% drop_horizon) %>%
-  dplyr::arrange(year, factor(GID_2, levels = W_str$GID_2))
+  dplyr::select(CD_GEOCMU, year, g) %>%
+  dplyr::filter(! year %in% drop_horizon) 
 
 # calculate log initial income
 vars <- c("int", "gdp_current_thousand_reais", colnames(X)[! colnames(X) %in% "gdp_current_thousand_reais"])
 X <- X %>% 
   dplyr::mutate(gdp_current_thousand_reais = log(gdp_current_thousand_reais)) %>%
-  dplyr::arrange(year, factor(GID_2, levels = W_str$GID_2)) %>% 
   dplyr::mutate(int = rep(1, nrow(X))) %>%
   dplyr::select(vars) %>%
   dplyr::filter(! year %in% drop_horizon)
-coefs <- vars[! vars %in% c("GID_2", "GID_1", "year")]
+coefs <- vars[! vars %in% c("CD_GEOCMU", "state", "year")]
 
 # year dummies
 D <- dummies::dummy(X$year, sep = "_")[,-1]
 
 # state dummies
 C <- X %>%
-  dplyr::mutate(bra_1 = ifelse(substr(GID_2, 1, 6) == "BRA.1.", 1, 0)) %>%
-  dplyr::mutate(bra_2 = ifelse(substr(GID_2, 1, 6) == "BRA.2.", 1, 0)) %>%
-  dplyr::mutate(bra_3 = ifelse(substr(GID_2, 1, 6) == "BRA.3.", 1, 0)) %>%
-  dplyr::mutate(bra_4 = ifelse(substr(GID_2, 1, 6) == "BRA.4.", 1, 0)) %>%
-  dplyr::mutate(bra_5 = ifelse(substr(GID_2, 1, 6) == "BRA.5.", 1, 0)) %>%
-  dplyr::mutate(bra_6 = ifelse(substr(GID_2, 1, 6) == "BRA.6.", 1, 0)) %>%
-  dplyr::mutate(bra_7 = ifelse(substr(GID_2, 1, 6) == "BRA.7.", 1, 0)) %>%
-  dplyr::mutate(bra_8 = ifelse(substr(GID_2, 1, 6) == "BRA.8.", 1, 0)) %>%
-  dplyr::mutate(bra_9 = ifelse(substr(GID_2, 1, 6) == "BRA.9.", 1, 0)) %>%
-  dplyr::mutate(bra_10 = ifelse(substr(GID_2, 1, 6) == "BRA.10", 1, 0)) %>%
-  dplyr::mutate(bra_11 = ifelse(substr(GID_2, 1, 6) == "BRA.11", 1, 0)) %>%
-  dplyr::mutate(bra_12 = ifelse(substr(GID_2, 1, 6) == "BRA.12", 1, 0)) %>%
-  dplyr::mutate(bra_13 = ifelse(substr(GID_2, 1, 6) == "BRA.13", 1, 0)) %>%
-  dplyr::mutate(bra_14 = ifelse(substr(GID_2, 1, 6) == "BRA.14", 1, 0)) %>%
-  dplyr::mutate(bra_15 = ifelse(substr(GID_2, 1, 6) == "BRA.15", 1, 0)) %>%
-  dplyr::mutate(bra_16 = ifelse(substr(GID_2, 1, 6) == "BRA.16", 1, 0)) %>%
-  dplyr::mutate(bra_17 = ifelse(substr(GID_2, 1, 6) == "BRA.17", 1, 0)) %>%
-  dplyr::mutate(bra_18 = ifelse(substr(GID_2, 1, 6) == "BRA.18", 1, 0)) %>%
-  dplyr::mutate(bra_19 = ifelse(substr(GID_2, 1, 6) == "BRA.19", 1, 0)) %>%
-  dplyr::mutate(bra_20 = ifelse(substr(GID_2, 1, 6) == "BRA.20", 1, 0)) %>%
-  dplyr::mutate(bra_21 = ifelse(substr(GID_2, 1, 6) == "BRA.21", 1, 0)) %>%
-  dplyr::mutate(bra_22 = ifelse(substr(GID_2, 1, 6) == "BRA.22", 1, 0)) %>%
-  dplyr::mutate(bra_23 = ifelse(substr(GID_2, 1, 6) == "BRA.23", 1, 0)) %>%
-  dplyr::mutate(bra_24 = ifelse(substr(GID_2, 1, 6) == "BRA.24", 1, 0)) %>%
-  dplyr::mutate(bra_25 = ifelse(substr(GID_2, 1, 6) == "BRA.25", 1, 0)) %>%
-  dplyr::mutate(bra_26 = ifelse(substr(GID_2, 1, 6) == "BRA.26", 1, 0)) %>%
-  dplyr::mutate(bra_27 = ifelse(substr(GID_2, 1, 6) == "BRA.27", 1, 0)) %>%
+  dplyr::mutate(bra_1 = ifelse(state  == "AC", 1, 0)) %>%
+  dplyr::mutate(bra_2 = ifelse(state  == "AL", 1, 0)) %>%
+  dplyr::mutate(bra_3 = ifelse(state  == "AM", 1, 0)) %>%
+  dplyr::mutate(bra_4 = ifelse(state  == "AP", 1, 0)) %>%
+  dplyr::mutate(bra_5 = ifelse(state  == "BA", 1, 0)) %>%
+  dplyr::mutate(bra_6 = ifelse(state  == "CE", 1, 0)) %>%
+  dplyr::mutate(bra_7 = ifelse(state  == "DF", 1, 0)) %>%
+  dplyr::mutate(bra_8 = ifelse(state  == "ES", 1, 0)) %>%
+  dplyr::mutate(bra_9 = ifelse(state  == "GO", 1, 0)) %>%
+  dplyr::mutate(bra_10 = ifelse(state  == "MA", 1, 0)) %>%
+  dplyr::mutate(bra_11 = ifelse(state  == "MG", 1, 0)) %>%
+  dplyr::mutate(bra_12 = ifelse(state  == "MS", 1, 0)) %>%
+  dplyr::mutate(bra_13 = ifelse(state  == "MT", 1, 0)) %>%
+  dplyr::mutate(bra_14 = ifelse(state  == "PA", 1, 0)) %>%
+  dplyr::mutate(bra_15 = ifelse(state  == "PB", 1, 0)) %>%
+  dplyr::mutate(bra_16 = ifelse(state  == "PE", 1, 0)) %>%
+  dplyr::mutate(bra_17 = ifelse(state  == "PI", 1, 0)) %>%
+  dplyr::mutate(bra_18 = ifelse(state  == "PR", 1, 0)) %>%
+  dplyr::mutate(bra_19 = ifelse(state  == "RJ", 1, 0)) %>%
+  dplyr::mutate(bra_20 = ifelse(state  == "RN", 1, 0)) %>%
+  dplyr::mutate(bra_21 = ifelse(state  == "RO", 1, 0)) %>%
+  dplyr::mutate(bra_22 = ifelse(state  == "RR", 1, 0)) %>%
+  dplyr::mutate(bra_23 = ifelse(state  == "RS", 1, 0)) %>%
+  dplyr::mutate(bra_24 = ifelse(state  == "SC", 1, 0)) %>%
+  dplyr::mutate(bra_25 = ifelse(state  == "SE", 1, 0)) %>%
+  dplyr::mutate(bra_26 = ifelse(state  == "SP", 1, 0)) %>%
+  dplyr::mutate(bra_27 = ifelse(state  == "TO", 1, 0)) %>%
   dplyr::select(bra_1,bra_2,bra_3,bra_4,bra_5,bra_6,bra_7,bra_8,bra_9,bra_10,
                 bra_11,bra_12,bra_13,bra_14,bra_15,bra_16,bra_17,bra_18,bra_19,bra_20,
                 bra_21,bra_22,bra_23,bra_24,bra_25,bra_26,bra_27)
 
-# # find out why X and W do not have identical dim
-# check_X <- data.frame(table(X[, c("GID_2")]))
-# setdiff(check_X$Var1, W_str$GID_2)
-# setdiff(W_str$GID_2, check_X$Var1)
-# # remove "BRA.20.50_1" (implemented above)
-# 
-# # count occurences
-# check <- as.data.frame(table(check_X))
-
-
-# check <- sf_panel %>%
-#   dplyr::filter(year %in% t_vector) %>%
-#   dplyr::filter(substr(GID_2, 1, 3) %in% c_vector2) %>%
-#   st_set_geometry(NULL)
-
-
-
 # remove year and transform to numeric matrices
 Y <- as.numeric(Y$g)
-X <- X %>% dplyr::select(-GID_1, -GID_2, -year)
+X <- X %>% dplyr::select(-state, -CD_GEOCMU, -year)
 X <- matrix(as.numeric(unlist(X)),nrow=nrow(X))
 C <- matrix(as.numeric(unlist(C)),nrow=nrow(C))
 
+
+# save matrices -----------------------------------------------------------
 
 
 

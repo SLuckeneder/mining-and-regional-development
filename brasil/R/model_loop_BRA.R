@@ -3,7 +3,7 @@ source("R/functions.R")
 
 # select years and countries for panel
 # t_vector <- c(2002:2016) # too big weights matrix -> cloud
-t_vector <- c(2012:2016)
+t_vector <- c(2002:2016)
 g_horizons <- c(2)
 c_vector1 <- c("Brazil")
 c_vector2 <- c("BRA")

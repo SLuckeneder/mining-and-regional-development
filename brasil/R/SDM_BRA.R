@@ -27,10 +27,10 @@ sigma_b = 0.01
 beta_prob = function(rho,a) 1/beta(a,a) * ((1+rho)^(a-1) *(1-rho)^(a-1))/(2^(2*a - 1))
 rho_a = 1.01
 
-### calibration parameters for rho sampling
-cc = 1 # scaling of rho proposals
-c_adjust = 1.1 # proposal distribution adjustment
-rho_accept = 0 # counter for rho acceptance rates
+# ### calibration parameters for rho sampling
+# cc = 1 # scaling of rho proposals
+# c_adjust = 1.1 # proposal distribution adjustment
+# rho_accept = 0 # counter for rho acceptance rates
 
 ### set-up the gibbs sampler
 # total number of draws
@@ -211,7 +211,7 @@ for (iter in 1:niter) {
   WYtemp <- WY/sqrt(sigma_i)
   Ytemp <- Y/sqrt(sigma_i)
   
-  V = solve(beta_prior_var_inv + crossprod(Xtemp))
+  # V = solve(beta_prior_var_inv + crossprod(Xtemp)) # already calculated above
   b0 = V %*% (beta_prior_var_inv%*%beta_prior_mean + crossprod(Xtemp,Ytemp))
   bd = V %*% (beta_prior_var_inv%*%beta_prior_mean + crossprod(Xtemp,WYtemp))
   e0 = Y - X %*% b0

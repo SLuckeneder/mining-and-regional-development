@@ -42,3 +42,34 @@ p <- dat %>% ggplot2::ggplot(aes(x = year, y = extraction, fill = region, group 
 pdf(file="output/metal_extraction_global.pdf", width = 8, height = 6)
 grid.arrange(p)
 dev.off()
+
+
+# total
+dat <- q %>%
+  dplyr::filter(material_category %in% cat) %>%
+  dplyr::group_by(year, material_category) %>%
+  dplyr::summarise(extraction = sum(extraction))
+
+p <- dat %>% ggplot2::ggplot(aes(x = year, y = extraction, group = 1)) +
+  ggplot2::geom_rect(aes(xmin= "2000", xmax=max(year), ymin=-Inf, ymax=+Inf), fill='grey', alpha=0.2) +
+  ggplot2::geom_line() +
+  ggplot2::labs(x = NULL, y = "Million tonnes", title = "Global metal ore extraction since 1970", caption = "Source: UN IRP Global Material Flows Database") +
+  ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 10000), breaks = scales::pretty_breaks(), labels=scales::comma) +
+  ggplot2::scale_x_discrete(expand = c(0, 0), breaks = seq(1970, 2017, 2)) +
+  ggplot2::theme_bw() +
+  ggplot2::theme(legend.position = "bottom", 
+                 legend.title=element_blank(),
+                 legend.text=element_text(size=14),
+                 legend.spacing.x = unit(0.1, 'cm'),
+                 panel.grid.minor =   element_blank(),
+                 panel.grid.major =   element_blank(),
+                 axis.line = element_line(colour = "black"),
+                 panel.border = element_blank(),
+                 axis.title.y = element_text(hjust = 1, size = 16),
+                 axis.text.y = element_text(size = 14),
+                 axis.text.x = element_text(angle = 90, vjust = 0.5, size = 14))
+
+pdf(file="output/metal_extraction_global_total.pdf", width = 9, height = 6)
+grid.arrange(p)
+dev.off()
+
